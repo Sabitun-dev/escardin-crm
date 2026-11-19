@@ -1,0 +1,32 @@
+{
+  "name": "escardin-jobs-bot",
+  "version": "1.0.0",
+  "description": "Escardin Jobs Bot: Telegram bot for curtain job quality control (Netlify)",
+  "scripts": {
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "dev:poll": "tsx --env-file=.env scripts/poll.ts",
+    "migrate": "tsx --env-file=.env scripts/migrate.ts",
+    "seed": "tsx --env-file=.env scripts/seed.ts",
+    "restore": "tsx --env-file=.env scripts/restore.ts"
+  },
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@netlify/blobs": "^11.1.9",
+    "grammy": "^1.46.0",
+    "postgres": "^4.1.1"
+  },
+  "devDependencies": {
+    "@netlify/functions": "^6.1.1",
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.1"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  }
+}
