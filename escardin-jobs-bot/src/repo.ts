@@ -196,6 +196,7 @@ export async function releaseNotification(kind: string, jobId: number, userId: n
 export async function cleanupOld(today: string) {
   await db()`DELETE FROM processed_updates WHERE created_at < now() - interval '3 days'`;
   await db()`DELETE FROM user_states WHERE updated_at < now() - interval '2 days'`;
+  await db()`DELETE FROM scheduler_runs WHERE kind = 'app_req' AND created_at < now() - interval '3 days'`;
   await db()`DELETE FROM notifications_sent WHERE kind <> 'unreachable' AND sent_date < ${addDays(today, -60)}`;
 }
 
@@ -286,6 +287,7 @@ export async function listJobs(
   today: string,
   page: number,
   search?: string,
+  pageSize = PAGE_SIZE,
 ): Promise<{ items: ListItem[]; total: number }> {
   const sql = db();
   const conds = [];
@@ -316,7 +318,7 @@ export async function listJobs(
   const [{ count }] = await sql<{ count: number }[]>`SELECT count(*) AS count FROM jobs j WHERE ${where}`;
   const order = search ? sql`ORDER BY (j.status = 'open') DESC, j.install_date, j.id` : sql`ORDER BY j.install_date, j.id`;
   const jobs = await sql<Job[]>`
-    ${JOB_SELECT(sql)} WHERE ${where} ${order} LIMIT ${PAGE_SIZE} OFFSET ${page * PAGE_SIZE}`;
+    ${JOB_SELECT(sql)} WHERE ${where} ${order} LIMIT ${pageSize} OFFSET ${page * pageSize}`;
   const checks = await checksFor(jobs.map((j) => j.id));
   return { items: jobs.map((j) => ({ ...j, checks: checks.get(j.id) ?? ordered([]) })), total: count };
 }
@@ -474,6 +476,33 @@ export async function history(jobId: number, limit: number | null): Promise<{ ev
 export async function jobPhotos(jobId: number): Promise<{ telegram_file_id: string; caption: string | null }[]> {
   return db()`
     SELECT telegram_file_id, caption FROM job_media WHERE job_id = ${jobId} AND kind = 'photo' ORDER BY id DESC LIMIT 10`;
+}
+
+export interface MediaItem {
+  id: number;
+  caption: string | null;
+  created_at: Date;
+}
+
+export async function jobMedia(jobId: number): Promise<MediaItem[]> {
+  return db()<MediaItem[]>`
+    SELECT id, caption, created_at FROM job_media WHERE job_id = ${jobId} AND kind = 'photo' ORDER BY id DESC LIMIT 30`;
+}
+
+export async function mediaFileId(id: number): Promise<string | null> {
+  const [m] = await db()<{ telegram_file_id: string }[]>`SELECT telegram_file_id FROM job_media WHERE id = ${id}`;
+  return m?.telegram_file_id ?? null;
+}
+
+/** Jobs I finished in the last 7 days, and how many of them were closed by the install date. */
+export async function weekStats(userId: number, tz: string): Promise<{ done: number; onTime: number }> {
+  const [r] = await db()<{ done: number; on_time: number }[]>`
+    SELECT count(*)::int AS done,
+      count(*) FILTER (WHERE (closed_at AT TIME ZONE ${tz})::date <= install_date)::int AS on_time
+    FROM jobs
+    WHERE status = 'done' AND closed_at > now() - interval '7 days'
+      AND (seller_id = ${userId} OR tailor_id = ${userId} OR closed_by = ${userId})`;
+  return { done: r?.done ?? 0, onTime: r?.on_time ?? 0 };
 }
 
 export async function countPhotos(jobId: number): Promise<number> {

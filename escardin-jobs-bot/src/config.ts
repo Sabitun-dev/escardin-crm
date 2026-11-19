@@ -36,6 +36,11 @@ export const cfg = {
     const v = env("GROUP_CHAT_ID");
     return v && Number.isFinite(Number(v)) ? Number(v) : null;
   },
+  /** Public site address (Netlify sets URL itself). Used for the Mini App at /app/. */
+  siteUrl: (): string | null => {
+    const v = env("APP_URL") || env("URL");
+    return /^https:\/\//.test(v) ? v.replace(/\/+$/, "") : null;
+  },
   timezone: () => env("TIMEZONE", "Asia/Tashkent"),
   defaultLang: (): "uz" | "en" => (env("DEFAULT_LANGUAGE", "uz").toLowerCase() === "en" ? "en" : "uz"),
   dailyTime: () => hhmm("DAILY_CHECK_TIME", "09:00"),

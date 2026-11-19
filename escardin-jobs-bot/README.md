@@ -29,6 +29,22 @@ Admins can set any check.
 **Weekly report** to admins every Sunday at 18:00, and any time from 📊 Reports.
 **Backups** every day, kept for 14 days; admins get the latest with 💾 Backup or `/backup`.
 
+## The Mini App ("Ochish" button)
+
+Next to the message box in the bot there is an **Ochish** button. It opens the Escardin app inside
+Telegram: big, friendly screens for everyday work. Every notification also has a **📱 Ochish** button
+that opens that job straight away (and **💬 Chatda** to see it in the chat as before).
+
+- **Bugun**: what I need to do now, most urgent first. One big "do this first" card, then the rest.
+- **Ishlar**: all jobs with search and filters (Meniki, Bugun, Kechikkan, Material, To'lanmagan…).
+- **Job card**: the 6 steps as a path of icons; tap a step to set it. Problems are guided step by step
+  (what happened → photo → send). At 6/6 there is a small celebration and a big **Yopish** button.
+- **Yangi ish** (sellers, admins), **Profil** (language, "Mening haftam", help),
+  **Boshqaruv** (admins: people, invites with a Share button, report, backup).
+
+The chat bot keeps working as before: invites, reminders, the weekly report and group posts stay in chat.
+The chat and the app use the same code for every change (`src/actions.ts`), so they never disagree.
+
 ## Setup, step by step
 
 You need: a Telegram account, a GitHub account, a Netlify account, a Neon account (all free).
@@ -61,7 +77,8 @@ You need: a Telegram account, a GitHub account, a Netlify account, a Neon accoun
    Then *Deploys → Trigger deploy → Deploy project* so the new settings are used.
 7. **Connect Telegram to the site.** In your browser open
    `https://YOUR-PROJECT.netlify.app/api/setup?key=YOUR_WEBHOOK_SECRET`.
-   You should see `Database: OK`, `Webhook: OK` and `All done`.
+   You should see `Database: OK`, `Webhook: OK`, `Menu button: OK` and `All done`.
+   It is safe to open this link again at any time.
 8. **Start using it.** In Telegram open your bot and send `/start`. You are an admin.
 9. **Invite people.** 👥 Users → ➕ Create invite → choose the role → type the name.
    Send the link to that person; they tap it and press Start. Any number of sellers and tailors is fine.
@@ -77,7 +94,8 @@ Edit in Windsurf, ask Claude to make the change, then ask it to commit and push.
 push and runs the type check and tests first. **If they fail, the old version stays live**, so a broken
 edit never reaches your team. Details and troubleshooting: [docs/DEPLOY_NETLIFY.md](docs/DEPLOY_NETLIFY.md).
 
-- All bot texts are in `src/locales/uz.ts` and `src/locales/en.ts`.
+- All bot texts are in `src/locales/uz.ts` and `src/locales/en.ts`; Mini App texts are in
+  `src/locales/app-uz.ts` and `src/locales/app-en.ts`.
 - Business rules (who may do what, the six checks, reminders) are in `src/rules/`.
 
 ## Project map
@@ -85,13 +103,18 @@ edit never reaches your team. Details and troubleshooting: [docs/DEPLOY_NETLIFY.
 ```
 netlify/functions/telegram.mts   Telegram sends every message here (webhook)
 netlify/functions/scheduler.mts  Runs every 15 min: reminders, weekly report, backups
-netlify/functions/setup.mts      One-time setup page (/api/setup?key=...)
-src/bot.ts                       Buttons, screens and flows
+netlify/functions/setup.mts      One-time setup page (/api/setup?key=...), also sets the "Ochish" button
+netlify/functions/api.mts        The Mini App talks to the server here (/api/app/...)
+webapp/                          The Mini App screens (built into public/app/, served at /app/)
+src/actions.ts                   Every change to a job or user (shared by the chat and the Mini App)
+src/api.ts                       Mini App API: checks the Telegram sign-in and permissions
+src/webapp-auth.ts               Checks the Telegram signature of Mini App requests
+src/bot.ts                       Chat buttons, screens and flows
 src/views.ts                     Message texts and keyboards
 src/rules/                       Permissions, six checks, reminder selection (tested)
 src/repo.ts                      Database reads and writes
 src/db.ts                        Connection and database schema (migrations)
-src/locales/                     Uzbek and English texts
+src/locales/                     Uzbek and English texts (app-uz.ts / app-en.ts: the Mini App)
 src/scheduler.ts, backup.ts, notify.ts
 scripts/                         Local testing, seed data, restore a backup
 tests/                           Automated tests (npm test)
@@ -116,7 +139,15 @@ To run the bot on your computer, copy `.env.example` to `.env`, fill it in, then
 npm run dev:poll
 ```
 
-This takes Telegram away from Netlify while it runs. When you stop it (Ctrl+C), open the
+This takes Telegram away from Netlify while it runs.
+
+To look at the Mini App on your computer with sample data (no Telegram, no database needed):
+
+```bash
+npm run dev:app
+```
+
+then open <http://localhost:5173/app/?mock&role=tailor> (or `role=seller`, `role=admin`). When you stop it (Ctrl+C), open the
 `/api/setup?key=...` link again so the live bot works.
 
 `npm run seed` fills an **empty test database** with 5 fake users and 4 sample jobs. Never run it on the
@@ -127,6 +158,5 @@ real database.
 - Customer phone numbers and addresses on the job.
 - Several payments per job with dates (a payment history) instead of one "paid so far" amount.
 - Forwarding SMM videos to a private channel.
-- A web dashboard for the owner.
 - Per-person reminder times, or a "snooze" button on reminders.
 - Russian language.

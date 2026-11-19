@@ -22,6 +22,9 @@ const uz = {
   btn_cancel: "✖️ Bekor qilish",
   btn_confirm: "✅ Tasdiqlash",
   btn_open: "Ochish",
+  btn_open_app: "📱 Ochish",
+  btn_open_chat: "💬 Chatda",
+  btn_app: "📱 Ilovani ochish",
   btn_yes: "Ha",
   help_text:
     "<b>Yordam</b>\n" +

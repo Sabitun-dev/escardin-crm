@@ -80,3 +80,28 @@ Tick each line. If something differs, write down the step and what you saw.
       not Ready. After 09:00 Tashkent the seller and tailor get ⏰ reminders, once per day.
 - [ ] A job past its install day with failing checks → admins get 🚨, once per day.
 - [ ] On Sunday after 18:00 admins get the weekly report.
+
+## 11. Mini App ("Ochish")
+Do this after the deploy shows **Published** and you opened the `/api/setup?key=...` link once more.
+- [ ] Close and reopen the bot chat. Next to the message box there is an **Ochish** button. Tap it → the
+      app opens on **Bugun** with a short 3-screen intro the first time (it can be skipped).
+- [ ] Phone B (tailor) sees only tailor work on Bugun, for example "1 ta ishga yorliq taqing". Tapping a
+      card opens the job with the right step already open.
+- [ ] B taps a step they may not change (5. Video) → a small "Bu bosqichni sotuvchi belgilaydi" note,
+      nothing changes. B taps 2. Tayyor → **Tayyor!** → the circle lights up green, a short "Saqlandi"
+      appears, and the team group gets the same post as from the chat.
+- [ ] B: 3. Sifat → **Muammo bor** → picks "Burma notekis" → takes a photo → **Yuborish**. A gets the
+      ❗️ problem message with the photo and a **📱 Ochish** button that opens this job in the app.
+      The job card shows the photo under **Rasmlar**.
+- [ ] B: 1. Material → Muammo bor → "Lenta yo'q" → **Ertaga** → Yuborish. A (as seller) gets ⚠️. In the
+      app A taps **Qolganini topshirdim** → B is told.
+- [ ] A: 6. To'lov → **Qisman** → types 2500000 (the numeric keypad opens, it shows "2 500 000") → Saqlash.
+- [ ] Make one job 6/6 → confetti and "Zo'r! Ish tayyor ✅" → **Yopish** closes it.
+- [ ] A: **Yangi ish** → type half a name, close the app, open it again → the draft is still there.
+      Finish it → the job opens; everyone gets 🆕 with **📱 Ochish**.
+- [ ] A: **Boshqaruv** → Odamlar (change a role, turn someone off/on), Taklif yaratish (Share button),
+      Hisobot, Zaxira nusxa (the file arrives in the bot chat).
+- [ ] Profil → English → every screen is in English; switch back to O'zbekcha.
+- [ ] Switch Telegram to dark mode (Settings → Appearance) → the app follows and stays readable.
+- [ ] A Telegram account that was never invited opens the app (e.g. from a forwarded link) →
+      "Administratordan taklif oling".

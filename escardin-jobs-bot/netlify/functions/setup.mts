@@ -42,6 +42,11 @@ export default async (req: Request): Promise<Response> => {
       );
     }
     lines.push(`Commands: OK`);
+
+    // The "Ochish" button next to the message box opens the Mini App
+    const appUrl = `${(process.env.APP_URL || site).replace(/\/+$/, "")}/app/`;
+    await api.setChatMenuButton({ menu_button: { type: "web_app", text: uz.btn_open, web_app: { url: appUrl } } });
+    lines.push(`Menu button: OK -> ${appUrl}`);
     lines.push(`Bot: @${me.username}`);
     lines.push(`Admins from ADMIN_TELEGRAM_IDS: ${cfg.adminIds().length}`);
     lines.push(`Group: ${cfg.groupChatId() ? "set" : "not set (add the bot to the group and send /groupid there)"}`);

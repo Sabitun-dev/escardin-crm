@@ -75,12 +75,27 @@ export function chunks(text: string, max = 3900): string[] {
   return out;
 }
 
-export const openKb = (lang: Lang, jobId: number) => new InlineKeyboard().text(t(lang, "btn_open"), `j:${jobId}`);
+/** Mini App address, optionally straight to one job. Null when the site address is unknown (local testing). */
+export function appUrl(jobId?: number): string | null {
+  const site = cfg.siteUrl();
+  if (!site) return null;
+  return `${site}/app/${jobId ? `?job=${jobId}` : ""}`;
+}
+
+/** "Open" buttons under a notification: in the Mini App, and the old chat card as a fallback. */
+export function openKb(lang: Lang, jobId: number, kb = new InlineKeyboard()): InlineKeyboard {
+  const app = appUrl(jobId);
+  if (kb.inline_keyboard.flat().length) kb.row();
+  if (app) return kb.webApp(t(lang, "btn_open_app"), app).text(t(lang, "btn_open_chat"), `j:${jobId}`);
+  return kb.text(t(lang, "btn_open"), `j:${jobId}`);
+}
 
 // ---------- menu & help ----------
 
 export function mainMenu(lang: Lang, u: User): View {
   const kb = new InlineKeyboard();
+  const app = appUrl();
+  if (app) kb.webApp(t(lang, "btn_app"), app).row();
   if (canCreateJob(u)) kb.text(t(lang, "btn_new_job"), "nj");
   kb.text(t(lang, "btn_jobs"), `l:a:0`).row();
   if (canManage(u)) kb.text(t(lang, "btn_users"), "u").text(t(lang, "btn_reports"), "r").row();

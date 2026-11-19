@@ -1,9 +1,10 @@
 // The Telegram bot: registration, menus, jobs, checks, admin tools.
 import { Bot, type Context, GrammyError, InlineKeyboard, InputFile } from "grammy";
+import * as act from "./actions";
 import { latestBackup } from "./backup";
 import { cfg } from "./config";
 import { type Lang, esc, money, t } from "./i18n";
-import { alertAdmins, audienceUsers, describe, markUnreachable, notifyMany, postToGroup, setBotUsername } from "./notify";
+import { alertAdmins, describe, markUnreachable, setBotUsername } from "./notify";
 import * as repo from "./repo";
 import type { EditField, Job, ListFilter, User } from "./repo";
 import { CHECKS, type CheckKey, keyFromShort, needsAmount, needsNote, parseMoney, validPartlyAmount } from "./rules/checks";
@@ -107,6 +108,15 @@ async function showList(ctx: Ctx, filter: ListFilter, page: number, search?: str
 
 const who = (ctx: Ctx) => esc(ctx.u.name);
 const glang = () => cfg.defaultLang();
+
+/** Text for an action that did not go through. */
+function failText(ctx: Ctx, f: act.Fail): string {
+  if (f.error === "incomplete" || f.error === "reason_required") {
+    return tr(ctx, "close_missing", { list: v.missingList(ctx.lang, f.missing ?? []) });
+  }
+  const same = ["not_found", "forbidden", "job_not_open", "photo_required", "no_issue", "self_forbidden"] as const;
+  return tr(ctx, (same as readonly string[]).includes(f.error) ? (f.error as (typeof same)[number]) : "expired");
+}
 
 // ---------------- bot ----------------
 
@@ -459,7 +469,9 @@ export function getBot(): Bot<MyContext> {
         const data = await repo.takeState(ctx.u.id, "inv_name");
         if (!data) return;
         await tidy(ctx, data);
-        const code = await repo.createInvite(data.role, n, ctx.u.id);
+        const r = await act.createInvite(ctx.u, data.role, n);
+        if (!r.ok) return ctx.reply(failText(ctx, r));
+        const code = r.code;
         const username = ctx.me.username;
         return ctx.reply(
           tr(ctx, "invite_created", {
@@ -551,25 +563,11 @@ async function newJobConfirm(ctx: Ctx) {
   if (!canCreateJob(ctx.u)) return toast(ctx, tr(ctx, "forbidden"), true);
   const data = await repo.takeState(ctx.u.id, "nj_confirm"); // a double tap finds nothing the second time
   if (!data) return toast(ctx, tr(ctx, "expired"));
-  const id = await repo.createJob({
-    name: data.name,
-    install_date: data.date,
-    price: data.price,
-    seller_id: ctx.u.id,
-    tailor_id: data.tailor,
-  });
+  const r = await act.createJob(ctx.api, ctx.u, { name: data.name, install_date: data.date, price: data.price, tailor_id: data.tailor });
+  if (!r.ok) return toast(ctx, failText(ctx, r), true);
   await toast(ctx, tr(ctx, "saved"));
-  await showCard(ctx, id);
-  const job = (await repo.getJob(id))!;
-  const p = (lang: Lang) => ({
-    name: esc(job.name),
-    date: fmtDate(job.install_date),
-    tailor: esc(job.tailor_name),
-    seller: esc(job.seller_name),
-    price: money(lang, job.price),
-  });
-  await postToGroup(ctx.api, job, t(glang(), "g_new_job", p(glang())));
-  await notifyMany(ctx.api, await repo.activeUsers(), (lang) => ({ text: t(lang, "notif_new_job", p(lang)), kb: v.openKb(lang, id) }), ctx.u.id);
+  await showCard(ctx, r.id);
+  await r.followUp();
 }
 
 // ---------------- checks ----------------
@@ -609,89 +607,27 @@ async function promisedChosen(ctx: Ctx, days: number) {
 }
 
 async function applyCheck(ctx: Ctx, jobId: number, key: CheckKey, value: string, input: CheckInput) {
-  const r = await repo.setCheck(ctx.u, jobId, key, value, input);
-  if (!r.found) return toast(ctx, tr(ctx, "not_found"), true);
-  const plan = r.plan;
-  if (!plan.ok) {
-    const msg =
-      plan.error === "not_open" ? "job_not_open" : plan.error === "forbidden" ? "forbidden" : plan.error === "photo_required" ? "photo_required" : "expired";
-    await toast(ctx, tr(ctx, msg), true);
-    return showCard(ctx, jobId);
+  const r = await act.setCheck(ctx.api, ctx.u, jobId, key, value, input);
+  if (!r.ok) {
+    await toast(ctx, failText(ctx, r), true);
+    if (r.error !== "not_found") await showCard(ctx, jobId);
+    return;
   }
-  await toast(ctx, tr(ctx, plan.changed ? "saved" : "no_change"));
+  await toast(ctx, tr(ctx, r.changed ? "saved" : "no_change"));
   await showCard(ctx, jobId);
-  if (!plan.changed) return;
-
-  const job = r.job;
-  const n = plan.next;
-  const row = { key, value: n.value };
-
-  // Team group: every change
-  const gl = glang();
-  const lines = [
-    t(gl, "g_check", {
-      name: esc(job.name),
-      icon: v.icon(row),
-      n: v.checkNum(key),
-      check: v.checkName(gl, key),
-      value: v.valueName(gl, key, n.value),
-      who: who(ctx),
-    }),
-  ];
-  if (n.note) lines.push(t(gl, "note_line", { note: esc(n.note) }));
-  if (n.promised_date) lines.push(t(gl, "promised_line", { date: fmtDate(n.promised_date) }));
-  if (key === "payment") {
-    const paid = n.amount ?? 0;
-    lines.push(t(gl, "paid_line", { paid: money(gl, paid), price: money(gl, job.price), rest: money(gl, Math.max(0, job.price - paid)) }));
-  }
-  await postToGroup(ctx.api, job, lines.join("\n"), input.photoFileId);
-
-  // People who must know (materials issue, problem)
-  if (plan.notify.length) {
-    const users = await audienceUsers(job, plan.notify);
-    await notifyMany(
-      ctx.api,
-      users,
-      (lang) => {
-        const text =
-          key === "materials"
-            ? t(lang, "n_materials", {
-                name: esc(job.name),
-                issue: v.valueName(lang, key, n.value),
-                note: esc(n.note ?? ""),
-                promised: n.promised_date ? t(lang, "n_promised_part", { date: fmtDate(n.promised_date) }) : "",
-                tailor: esc(job.tailor_name),
-              })
-            : t(lang, "n_problem", { name: esc(job.name), note: esc(n.note ?? ""), tailor: esc(job.tailor_name) });
-        return { text, kb: v.openKb(lang, job.id), photo: input.photoFileId };
-      },
-      ctx.u.id,
-    );
-  }
+  await r.followUp();
 }
 
 async function claimDelivered(ctx: Ctx, jobId: number) {
-  const r = await repo.claimDelivered(ctx.u, jobId);
-  if (!r.found) return toast(ctx, tr(ctx, "not_found"), true);
-  const plan = r.plan;
-  if (!plan.ok) {
-    await toast(ctx, tr(ctx, plan.error === "no_issue" ? "no_issue" : plan.error === "not_open" ? "job_not_open" : "forbidden"), true);
-    return showCard(ctx, jobId);
+  const r = await act.claimDelivered(ctx.api, ctx.u, jobId);
+  if (!r.ok) {
+    await toast(ctx, failText(ctx, r), true);
+    if (r.error !== "not_found") await showCard(ctx, jobId);
+    return;
   }
-  await toast(ctx, tr(ctx, plan.changed ? "delivered_saved" : "no_change"));
+  await toast(ctx, tr(ctx, r.changed ? "delivered_saved" : "no_change"));
   await showCard(ctx, jobId);
-  if (!plan.changed) return;
-  const job = r.job;
-  await postToGroup(ctx.api, job, t(glang(), "g_delivered", { name: esc(job.name), who: who(ctx) }));
-  await notifyMany(
-    ctx.api,
-    await audienceUsers(job, plan.notify),
-    (lang) => ({
-      text: t(lang, "n_delivered", { seller: who(ctx), name: esc(job.name) }),
-      kb: new InlineKeyboard().text(t(lang, "btn_all_received"), `s:${job.id}:m:0`).text(t(lang, "btn_open"), `j:${job.id}`),
-    }),
-    ctx.u.id,
-  );
+  await r.followUp();
 }
 
 async function showHistory(ctx: Ctx, jobId: number, all: boolean) {
@@ -738,39 +674,15 @@ async function exceptionAsk(ctx: Ctx, jobId: number) {
 }
 
 async function closeDo(ctx: Ctx, jobId: number, reason: string | null) {
-  const r = await repo.closeJob(ctx.u, jobId, reason);
-  if (!r.found) return toast(ctx, tr(ctx, "not_found"), true);
-  if (!r.closed) {
-    const d = r.decision;
-    const msg = !d.ok && d.reason !== "incomplete" ? tr(ctx, d.reason === "not_open" ? "job_not_open" : "forbidden") : tr(ctx, "close_missing", { list: v.missingList(ctx.lang, d.missing) });
-    await toast(ctx, msg, true);
-    return showCard(ctx, jobId);
+  const r = await act.closeJob(ctx.api, ctx.u, jobId, reason);
+  if (!r.ok) {
+    await toast(ctx, failText(ctx, r), true);
+    if (r.error !== "not_found") await showCard(ctx, jobId);
+    return;
   }
   await toast(ctx, tr(ctx, "closed_ok"));
   await showCard(ctx, jobId);
-  const job = r.job;
-  const exception = r.decision.ok && r.decision.exception;
-  const gl = glang();
-  if (exception) {
-    await postToGroup(ctx.api, job, t(gl, "g_closed_exc", { name: esc(job.name), who: who(ctx), reason: esc(reason) }));
-    await notifyMany(
-      ctx.api,
-      await repo.activeUsers("admin"),
-      (lang) => ({
-        text: t(lang, "n_closed_exc", { name: esc(job.name), by: who(ctx), reason: esc(reason), list: v.missingList(lang, r.decision.missing) }),
-        kb: v.openKb(lang, job.id),
-      }),
-      ctx.u.id,
-    );
-  } else {
-    await postToGroup(ctx.api, job, t(gl, "g_closed", { name: esc(job.name), who: who(ctx) }));
-    await notifyMany(
-      ctx.api,
-      await audienceUsers(job, ["seller", "tailor", "admins"]),
-      (lang) => ({ text: t(lang, "n_closed", { name: esc(job.name), by: who(ctx) }), kb: v.openKb(lang, job.id) }),
-      ctx.u.id,
-    );
-  }
+  await r.followUp();
 }
 
 async function cancelAsk(ctx: Ctx, jobId: number) {
@@ -784,14 +696,11 @@ async function cancelAsk(ctx: Ctx, jobId: number) {
 }
 
 async function cancelDo(ctx: Ctx, jobId: number) {
-  const job = await loadJob(ctx, jobId);
-  if (!job) return;
-  if (!canCancelJob(ctx.u, job)) return toast(ctx, tr(ctx, job.status !== "open" ? "job_not_open" : "forbidden"), true);
-  if (await repo.cancelJob(ctx.u.id, jobId)) {
-    await toast(ctx, tr(ctx, "cancelled_ok"));
-    await postToGroup(ctx.api, job, t(glang(), "g_cancelled", { name: esc(job.name), who: who(ctx) }));
-  }
-  return showCard(ctx, jobId);
+  const r = await act.cancelJob(ctx.api, ctx.u, jobId);
+  if (!r.ok) return toast(ctx, failText(ctx, r), true);
+  if (r.changed) await toast(ctx, tr(ctx, "cancelled_ok"));
+  await showCard(ctx, jobId);
+  await r.followUp();
 }
 
 // ---------------- edit ----------------
@@ -837,56 +746,11 @@ async function editDate(ctx: Ctx, jobId: number, date: string, confirmed: boolea
 }
 
 async function editApply(ctx: Ctx, jobId: number, field: EditField, value: string | number) {
-  const job = await loadJob(ctx, jobId);
-  if (!job) return;
-  if (!canEditJob(ctx.u, job)) return toast(ctx, tr(ctx, "forbidden"), true);
-  if (field === "tailor_id") {
-    const tl = await repo.userById(Number(value));
-    if (!tl || tl.role !== "tailor" || !tl.is_active) return toast(ctx, tr(ctx, "expired"), true);
-  }
-  const r = await repo.editJob(ctx.u.id, jobId, field, value);
-  await toast(ctx, tr(ctx, r ? "saved" : "no_change"));
+  const r = await act.editJob(ctx.api, ctx.u, jobId, field, value);
+  if (!r.ok) return toast(ctx, failText(ctx, r), true);
+  await toast(ctx, tr(ctx, r.changed ? "saved" : "no_change"));
   await showCard(ctx, jobId);
-  if (!r) return;
-
-  const fresh = (await repo.getJob(jobId))!;
-  const gl = glang();
-  const fmt = (lang: Lang, x: string | number) =>
-    field === "install_date" ? fmtDate(String(x)) : field === "price" ? money(lang, Number(x)) : esc(String(x));
-  const oldVal = field === "tailor_id" ? job.tailor_name : r.old;
-  const newVal = field === "tailor_id" ? fresh.tailor_name : value;
-  await postToGroup(
-    ctx.api,
-    fresh,
-    t(gl, "g_edit", { name: esc(fresh.name), field: v.fieldName(gl, field), old: fmt(gl, oldVal), new: fmt(gl, newVal), who: who(ctx) }),
-  );
-
-  if (field === "tailor_id") {
-    const users = [
-      ...(await audienceUsers({ seller_id: job.seller_id, tailor_id: job.tailor_id }, ["tailor"])),
-      ...(await audienceUsers(fresh, ["tailor", "admins"])),
-    ];
-    await notifyMany(
-      ctx.api,
-      users,
-      (lang) => ({
-        text: t(lang, "n_tailor_changed", { name: esc(fresh.name), old: esc(job.tailor_name), new: esc(fresh.tailor_name), by: who(ctx) }),
-        kb: v.openKb(lang, jobId),
-      }),
-      ctx.u.id,
-    );
-  }
-  if (field === "install_date") {
-    await notifyMany(
-      ctx.api,
-      await audienceUsers(fresh, ["tailor", "admins"]),
-      (lang) => ({
-        text: t(lang, "n_date_changed", { name: esc(fresh.name), old: fmtDate(job.install_date), new: fmtDate(fresh.install_date), by: who(ctx) }),
-        kb: v.openKb(lang, jobId),
-      }),
-      ctx.u.id,
-    );
-  }
+  await r.followUp();
 }
 
 // ---------------- admin ----------------
@@ -906,19 +770,18 @@ async function userScreen(ctx: Ctx, id: number) {
 
 async function userRole(ctx: Ctx, id: number, letter: string) {
   const role = v.roleFromLetter(letter);
-  if (!canManage(ctx.u) || !role) return toast(ctx, tr(ctx, "forbidden"), true);
-  if (id === ctx.u.id) return toast(ctx, tr(ctx, "self_forbidden"), true);
-  await repo.setUserRole(id, role);
+  if (!role) return toast(ctx, tr(ctx, "forbidden"), true);
+  const r = await act.setUserRole(ctx.u, id, role);
+  if (!r.ok) return toast(ctx, failText(ctx, r), true);
   await toast(ctx, tr(ctx, "saved"));
   return userScreen(ctx, id);
 }
 
 async function userToggle(ctx: Ctx, id: number) {
-  if (!canManage(ctx.u)) return toast(ctx, tr(ctx, "forbidden"), true);
-  if (id === ctx.u.id) return toast(ctx, tr(ctx, "self_forbidden"), true);
   const u = await repo.userById(id);
   if (!u) return toast(ctx, tr(ctx, "expired"), true);
-  await repo.setUserActive(id, !u.is_active);
+  const r = await act.setUserActive(ctx.u, id, !u.is_active);
+  if (!r.ok) return toast(ctx, failText(ctx, r), true);
   await toast(ctx, tr(ctx, "saved"));
   return userScreen(ctx, id);
 }

@@ -1,0 +1,151 @@
+// What each person should do today (the Mini App "Bugun" screen). Pure, so it can be tested.
+import { diffDays } from "../time";
+import { type CheckKey, isComplete, ordered } from "./checks";
+import type { Actor } from "./permissions";
+import type { OpenJob } from "./reminders";
+
+export type TaskKind =
+  // tailor
+  | "check_delivered" // seller says the rest of the materials is delivered: confirm
+  | "fix_problem"
+  | "check_materials"
+  | "make_ready"
+  | "check_quality"
+  | "attach_label"
+  | "wait_materials" // waiting for the seller (information)
+  // seller (admins too, for their own jobs)
+  | "bring_materials"
+  | "get_payment"
+  | "take_video"
+  | "close_job"
+  // admin
+  | "overdue"
+  | "problems"
+  | "materials_issues"
+  | "unpaid_total";
+
+export type Tone = "red" | "amber" | "green" | "gold" | "grey";
+
+export interface Task {
+  kind: TaskKind;
+  tone: Tone;
+  jobIds: number[];
+  /** The check to open straight away, when the task is one step */
+  step: CheckKey | null;
+  /** Jobs among these that install today or are late */
+  urgent: number;
+  /** So'm, for money tasks */
+  amount?: number;
+}
+
+const ORDER: TaskKind[] = [
+  "overdue",
+  "check_delivered",
+  "fix_problem",
+  "problems",
+  "close_job",
+  "bring_materials",
+  "check_materials",
+  "make_ready",
+  "check_quality",
+  "attach_label",
+  "get_payment",
+  "take_video",
+  "materials_issues",
+  "wait_materials",
+  "unpaid_total",
+];
+
+const TONE: Record<TaskKind, Tone> = {
+  overdue: "red",
+  check_delivered: "amber",
+  fix_problem: "red",
+  problems: "red",
+  close_job: "green",
+  bring_materials: "amber",
+  check_materials: "grey",
+  make_ready: "amber",
+  check_quality: "grey",
+  attach_label: "grey",
+  get_payment: "gold",
+  take_video: "grey",
+  materials_issues: "amber",
+  wait_materials: "grey",
+  unpaid_total: "gold",
+};
+
+const STEP: Partial<Record<TaskKind, CheckKey>> = {
+  check_delivered: "materials",
+  check_materials: "materials",
+  make_ready: "ready",
+  check_quality: "quality",
+  fix_problem: "quality",
+  attach_label: "label",
+  take_video: "video",
+  get_payment: "payment",
+};
+
+/** Money still owed on a job. */
+export const remaining = (j: OpenJob) => {
+  const p = ordered(j.checks)[5];
+  return p.value === "paid" ? 0 : Math.max(0, j.price - (p.amount ?? 0));
+};
+
+export function todayTasks(me: Actor, jobs: OpenJob[], today: string): Task[] {
+  const lists = new Map<TaskKind, OpenJob[]>();
+  const add = (k: TaskKind, j: OpenJob) => {
+    const l = lists.get(k) ?? [];
+    if (!l.includes(j)) l.push(j);
+    lists.set(k, l);
+  };
+  const sorted = [...jobs].sort((a, b) => a.install_date.localeCompare(b.install_date) || a.id - b.id);
+
+  for (const j of sorted) {
+    const [materials, ready, quality, label, video, payment] = ordered(j.checks);
+    const issue = materials.value !== null && materials.value !== "all_received";
+    const days = diffDays(today, j.install_date);
+
+    if (me.role === "tailor" && j.tailor_id === me.id) {
+      if (issue && materials.delivered_claimed) add("check_delivered", j);
+      else if (issue) add("wait_materials", j);
+      if (materials.value === null) add("check_materials", j);
+      if (quality.value === "problem") add("fix_problem", j);
+      if (ready.value !== "ready") add("make_ready", j);
+      else {
+        if (quality.value === null) add("check_quality", j);
+        if (label.value !== "on") add("attach_label", j);
+      }
+    }
+
+    if ((me.role === "seller" || me.role === "admin") && j.seller_id === me.id) {
+      if (issue && !materials.delivered_claimed) add("bring_materials", j);
+      if (payment.value !== "paid") add("get_payment", j);
+      if (video.value !== "taken" && (ready.value === "ready" || days <= 0)) add("take_video", j);
+      if (me.role === "seller" && isComplete(j.checks)) add("close_job", j);
+    }
+
+    if (me.role === "admin") {
+      if (days < 0) add("overdue", j);
+      if (quality.value === "problem") add("problems", j);
+      if (issue) add("materials_issues", j);
+      if (isComplete(j.checks)) add("close_job", j);
+      if (remaining(j) > 0) add("unpaid_total", j);
+    }
+  }
+
+  const out: Task[] = [];
+  for (const kind of ORDER) {
+    const list = lists.get(kind);
+    if (!list?.length) continue;
+    const task: Task = {
+      kind,
+      tone: TONE[kind],
+      jobIds: list.map((j) => j.id),
+      step: STEP[kind] ?? null,
+      urgent: list.filter((j) => diffDays(today, j.install_date) <= 0).length,
+    };
+    if (kind === "get_payment" || kind === "unpaid_total") task.amount = list.reduce((s, j) => s + remaining(j), 0);
+    out.push(task);
+  }
+  return out;
+}

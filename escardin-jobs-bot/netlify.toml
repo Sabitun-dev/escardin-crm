@@ -1,9 +1,10 @@
 # Netlify settings for Escardin Jobs Bot.
 # Every push to GitHub runs this build. If the type check or the tests fail,
 # Netlify keeps the previous working version live, so a broken edit never goes out.
+# The last step builds the Mini App (webapp/) into public/app/, served at /app/.
 
 [build]
-  command = "npm run typecheck && npm test"
+  command = "npm run typecheck && npm test && npm run build:app"
   publish = "public"
 
 [build.environment]
@@ -11,3 +12,15 @@
 
 [functions]
   node_bundler = "esbuild"
+
+# Mini App files have a fingerprint in their name, so phones may keep them for a long time
+[[headers]]
+  for = "/app/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The Mini App page itself is always checked for a new version
+[[headers]]
+  for = "/app/*"
+  [headers.values]
+    Cache-Control = "no-cache"

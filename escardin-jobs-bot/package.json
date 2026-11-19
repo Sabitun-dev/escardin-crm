@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "Escardin Jobs Bot: Telegram bot for curtain job quality control (Netlify)",
   "scripts": {
-    "typecheck": "tsc",
+    "typecheck": "tsc && tsc -p webapp",
     "test": "vitest run",
     "dev:poll": "tsx --env-file=.env scripts/poll.ts",
     "migrate": "tsx --env-file=.env scripts/migrate.ts",
     "seed": "tsx --env-file=.env scripts/seed.ts",
-    "restore": "tsx --env-file=.env scripts/restore.ts"
+    "restore": "tsx --env-file=.env scripts/restore.ts",
+    "build:app": "vite build --config webapp/vite.config.ts",
+    "dev:app": "vite --config webapp/vite.config.ts"
   },
   "author": "",
   "license": "UNLICENSED",
@@ -20,9 +22,17 @@
   },
   "devDependencies": {
     "@netlify/functions": "^6.1.1",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "canvas-confetti": "^1.9.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
+    "vite": "^8.3.8",
     "vitest": "^5.1.1"
   },
   "private": true,

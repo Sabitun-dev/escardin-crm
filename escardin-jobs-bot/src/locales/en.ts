@@ -21,6 +21,9 @@ const en: Record<Key, string> = {
   btn_cancel: "✖️ Cancel",
   btn_confirm: "✅ Confirm",
   btn_open: "Open",
+  btn_open_app: "📱 Open",
+  btn_open_chat: "💬 In chat",
+  btn_app: "📱 Open the app",
   btn_yes: "Yes",
   help_text:
     "<b>Help</b>\n" +
