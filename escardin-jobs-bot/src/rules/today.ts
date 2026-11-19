@@ -5,24 +5,25 @@ import type { Actor } from "./permissions";
 import type { OpenJob } from "./reminders";
 
 export type TaskKind =
-  // tailor
+  // tailor (steps 1–2, and fixing what SMM found)
   | "check_delivered" // seller says the rest of the materials is delivered: confirm
   | "fix_problem"
   | "check_materials"
   | "make_ready"
+  | "wait_materials" // waiting for the seller (information)
+  // SMM (steps 3–5)
   | "check_quality"
   | "attach_label"
-  | "wait_materials" // waiting for the seller (information)
+  | "take_video"
   // seller (admins too, for their own jobs)
   | "bring_materials"
-  | "get_payment"
-  | "take_video"
   | "close_job"
-  // admin
+  // admin (step 6, dates, overview)
+  | "decide_date"
+  | "get_payment"
   | "overdue"
   | "problems"
-  | "materials_issues"
-  | "unpaid_total";
+  | "materials_issues";
 
 export type Tone = "red" | "amber" | "green" | "gold" | "grey";
 
@@ -40,6 +41,7 @@ export interface Task {
 
 const ORDER: TaskKind[] = [
   "overdue",
+  "decide_date",
   "check_delivered",
   "fix_problem",
   "problems",
@@ -49,15 +51,15 @@ const ORDER: TaskKind[] = [
   "make_ready",
   "check_quality",
   "attach_label",
-  "get_payment",
   "take_video",
+  "get_payment",
   "materials_issues",
   "wait_materials",
-  "unpaid_total",
 ];
 
 const TONE: Record<TaskKind, Tone> = {
   overdue: "red",
+  decide_date: "amber",
   check_delivered: "amber",
   fix_problem: "red",
   problems: "red",
@@ -71,7 +73,6 @@ const TONE: Record<TaskKind, Tone> = {
   take_video: "grey",
   materials_issues: "amber",
   wait_materials: "grey",
-  unpaid_total: "gold",
 };
 
 const STEP: Partial<Record<TaskKind, CheckKey>> = {
@@ -111,25 +112,28 @@ export function todayTasks(me: Actor, jobs: OpenJob[], today: string): Task[] {
       if (materials.value === null) add("check_materials", j);
       if (quality.value === "problem") add("fix_problem", j);
       if (ready.value !== "ready") add("make_ready", j);
-      else {
-        if (quality.value === null) add("check_quality", j);
-        if (label.value !== "on") add("attach_label", j);
-      }
+    }
+
+    // SMM checks every job once the curtain is ready (video also on the install day)
+    if (me.role === "smm") {
+      if (ready.value === "ready" && quality.value === null) add("check_quality", j);
+      if (ready.value === "ready" && label.value !== "on") add("attach_label", j);
+      if (video.value !== "taken" && (ready.value === "ready" || days <= 0)) add("take_video", j);
     }
 
     if ((me.role === "seller" || me.role === "admin") && j.seller_id === me.id) {
       if (issue && !materials.delivered_claimed) add("bring_materials", j);
-      if (payment.value !== "paid") add("get_payment", j);
-      if (video.value !== "taken" && (ready.value === "ready" || days <= 0)) add("take_video", j);
+      if (materials.value === null && me.role === "seller") add("check_materials", j);
       if (me.role === "seller" && isComplete(j.checks)) add("close_job", j);
     }
 
     if (me.role === "admin") {
       if (days < 0) add("overdue", j);
+      if (j.offer_pending) add("decide_date", j);
       if (quality.value === "problem") add("problems", j);
       if (issue) add("materials_issues", j);
       if (isComplete(j.checks)) add("close_job", j);
-      if (remaining(j) > 0) add("unpaid_total", j);
+      if (payment.value !== "paid") add("get_payment", j);
     }
   }
 
@@ -144,7 +148,7 @@ export function todayTasks(me: Actor, jobs: OpenJob[], today: string): Task[] {
       step: STEP[kind] ?? null,
       urgent: list.filter((j) => diffDays(today, j.install_date) <= 0).length,
     };
-    if (kind === "get_payment" || kind === "unpaid_total") task.amount = list.reduce((s, j) => s + remaining(j), 0);
+    if (kind === "get_payment") task.amount = list.reduce((s, j) => s + remaining(j), 0);
     out.push(task);
   }
   return out;

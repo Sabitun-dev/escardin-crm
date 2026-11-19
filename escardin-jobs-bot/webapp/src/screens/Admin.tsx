@@ -16,6 +16,7 @@ import { Sheet } from "../ui/Sheet";
 const ROLES: [Role, IconName][] = [
   ["seller", "user"],
   ["tailor", "needle"],
+  ["smm", "video"],
   ["admin", "shield"],
 ];
 
@@ -229,12 +230,12 @@ function InviteSheet({ onClose }: { onClose: () => void }) {
           <div className="sheet-step" style={{ marginTop: 16 }}>
             {t("invite_role")}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {ROLES.map(([r, icon]) => (
               <button
                 key={r}
                 className={cx("choice tone-gold", role === r && "on")}
-                style={{ flexDirection: "column", justifyContent: "center", gap: 6, minHeight: 92, padding: 8, textAlign: "center", fontSize: 15 }}
+                style={{ flexDirection: "column", justifyContent: "center", gap: 6, minHeight: 84, padding: 8, textAlign: "center", fontSize: 15 }}
                 aria-pressed={role === r}
                 onClick={() => (haptic.select(), setRole(r))}
               >

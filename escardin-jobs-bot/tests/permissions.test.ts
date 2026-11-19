@@ -7,9 +7,11 @@ import {
   canCreateJob,
   canEditJob,
   canManage,
+  canDecideDate,
+  canProposeDate,
   canSetCheck,
 } from "../src/rules/permissions";
-import { admin, allPass, checks, job, otherSeller, otherTailor, seller, tailor } from "./helpers";
+import { admin, allPass, checks, job, otherSeller, otherTailor, seller, smm, tailor } from "./helpers";
 
 describe("permissions table", () => {
   it("create job: seller and admin only", () => {
@@ -33,22 +35,41 @@ describe("permissions table", () => {
     expect(canCancelJob(admin, job({ status: "cancelled" }))).toBe(false);
   });
 
-  it("materials, ready, quality, label: own tailor or admin", () => {
-    for (const k of ["materials", "ready", "quality", "label"] as const) {
-      expect(canSetCheck(tailor, job(), k)).toBe(true);
-      expect(canSetCheck(otherTailor, job(), k)).toBe(false);
-      expect(canSetCheck(seller, job(), k)).toBe(false);
+  it("1 materials: own tailor, own seller or admin", () => {
+    expect(canSetCheck(tailor, job(), "materials")).toBe(true);
+    expect(canSetCheck(seller, job(), "materials")).toBe(true);
+    expect(canSetCheck(admin, job(), "materials")).toBe(true);
+    expect(canSetCheck(otherTailor, job(), "materials")).toBe(false);
+    expect(canSetCheck(otherSeller, job(), "materials")).toBe(false);
+    expect(canSetCheck(smm, job(), "materials")).toBe(false);
+  });
+
+  it("2 ready: own tailor or admin", () => {
+    expect(canSetCheck(tailor, job(), "ready")).toBe(true);
+    expect(canSetCheck(admin, job(), "ready")).toBe(true);
+    for (const a of [otherTailor, seller, smm]) expect(canSetCheck(a, job(), "ready")).toBe(false);
+  });
+
+  it("3 quality, 4 label, 5 video: any SMM person or admin", () => {
+    for (const k of ["quality", "label", "video"] as const) {
+      expect(canSetCheck(smm, job(), k)).toBe(true);
+      expect(canSetCheck(smm, job({ seller_id: 77, tailor_id: 88 }), k)).toBe(true);
       expect(canSetCheck(admin, job(), k)).toBe(true);
+      for (const a of [tailor, seller]) expect(canSetCheck(a, job(), k)).toBe(false);
     }
   });
 
-  it("video, payment: own seller or admin", () => {
-    for (const k of ["video", "payment"] as const) {
-      expect(canSetCheck(seller, job(), k)).toBe(true);
-      expect(canSetCheck(otherSeller, job(), k)).toBe(false);
-      expect(canSetCheck(tailor, job(), k)).toBe(false);
-      expect(canSetCheck(admin, job(), k)).toBe(true);
-    }
+  it("6 payment: admin only", () => {
+    expect(canSetCheck(admin, job(), "payment")).toBe(true);
+    for (const a of [seller, tailor, smm]) expect(canSetCheck(a, job(), "payment")).toBe(false);
+  });
+
+  it("new install date: own tailor suggests, admin decides", () => {
+    expect(canProposeDate(tailor, job())).toBe(true);
+    for (const a of [otherTailor, seller, smm, admin]) expect(canProposeDate(a, job())).toBe(false);
+    expect(canProposeDate(tailor, job({ status: "done" }))).toBe(false);
+    expect(canDecideDate(admin)).toBe(true);
+    for (const a of [seller, tailor, smm]) expect(canDecideDate(a)).toBe(false);
   });
 
   it("nobody sets checks on a closed job", () => {
@@ -80,6 +101,7 @@ describe("close rule", () => {
   it("other seller and tailor cannot close", () => {
     expect(canClose(otherSeller, job(), allPass())).toMatchObject({ ok: false, reason: "forbidden" });
     expect(canClose(tailor, job(), allPass())).toMatchObject({ ok: false, reason: "forbidden" });
+    expect(canClose(smm, job(), allPass())).toMatchObject({ ok: false, reason: "forbidden" });
   });
 
   it("admin closes at 6/6 normally, below 6/6 as exception", () => {

@@ -22,13 +22,17 @@ const users: AppUser[] = [
   { id: 4, name: "Gulnora Rahimova", role: "tailor", language: "uz", is_active: true, is_reachable: true },
   { id: 5, name: "Nodira Saidova", role: "tailor", language: "uz", is_active: true, is_reachable: true },
   { id: 6, name: "Shahzoda Ergasheva", role: "tailor", language: "uz", is_active: false, is_reachable: true },
+  { id: 7, name: "Sardor Aliyev", role: "smm", language: "uz", is_active: true, is_reachable: true },
 ];
 const roleParam = qs.get("role");
-const meId = roleParam === "tailor" ? 4 : roleParam === "seller" ? 2 : 1;
+const meId = roleParam === "tailor" ? 4 : roleParam === "seller" ? 2 : roleParam === "smm" ? 7 : 1;
 if (qs.get("lang") === "en") users.find((u) => u.id === meId)!.language = "en";
 const uname = (id: number) => users.find((u) => u.id === id)?.name ?? "";
 
 type V = Partial<Record<CheckKey, [string, Partial<AppCheck>?]>>;
+const who = (key: CheckKey, tailor: number) => (key === "materials" || key === "ready" ? tailor : key === "payment" ? 1 : 7);
+// A waiting "new date" request from the tailor (job 6)
+const offers: { id: number; job_id: number; old_date: string; new_date: string; reason: string; proposed_by_name: string; created_at: string }[] = [];
 let nextJob = 1;
 const jobs: AppJob[] = [];
 function job(name: string, inDays: number, price: number, seller: number, tailor: number, v: V, status: AppJob["status"] = "open"): AppJob {
@@ -55,8 +59,8 @@ function job(name: string, inDays: number, price: number, seller: number, tailor
         promised_date: null,
         delivered_claimed: false,
         amount: x?.[0] === "paid" ? price : x?.[0] === "unpaid" ? 0 : null,
-        updated_by: x ? (key === "video" || key === "payment" ? seller : tailor) : null,
-        updated_by_name: x ? uname(key === "video" || key === "payment" ? seller : tailor) : null,
+        updated_by: x ? who(key, tailor) : null,
+        updated_by_name: x ? uname(who(key, tailor)) : null,
         updated_at: x ? new Date(Date.now() - 3600_000 * (3 + key.length)).toISOString() : null,
         ...x?.[1],
       };
@@ -74,7 +78,8 @@ job("Karimova N., Chilonzor — yotoqxona", 2, 3_200_000, 2, 4, {
 job("Do'stlik ko'chasi 12 — zal", -2, 7_800_000, 3, 4, { materials: ok, ready: ["ready"], quality: ["problem", { note: "Burma notekis, chap tomonda" }], label: ["on"] });
 job("Rasulovlar oilasi — oshxona", 6, 2_150_000, 2, 5, { materials: ok, ready: ["ready"], quality: ["ok"], label: ["on"], payment: ["paid"] });
 job("Uychi tumani hokimligi — ofis", 9, 12_400_000, 1, 5, {});
-job("Yusupov J., Davlatobod — bolalar xonasi", 1, 1_900_000, 2, 4, { materials: ok, ready: ["not_ready"] });
+const late = job("Yusupov J., Davlatobod — bolalar xonasi", 1, 1_900_000, 2, 4, { materials: ok, ready: ["not_ready"] });
+offers.push({ id: 1, job_id: late.id, old_date: late.install_date, new_date: add(4), reason: "Mato kech keldi", proposed_by_name: "Gulnora Rahimova", created_at: new Date().toISOString() });
 job("Mirzayevlar, Chortoq — mehmonxona", 4, 5_600_000, 2, 4, { materials: ["not_enough", { note: "Tyul 3 metr yetmaydi" }] });
 job("Sobirova D. — yotoqxona", -6, 3_000_000, 2, 5, { materials: ok, ready: ["ready"], quality: ["ok"], label: ["on"], video: ["taken"], payment: ["paid"] }, "done");
 
@@ -105,7 +110,7 @@ export async function mockApi<T>(method: string, path: string, body: any, form?:
   if (a === "me" && b === "lang") return (u.language = body.lang), res({ ok: true });
   if (a === "today") {
     const open = jobs.filter((j) => j.status === "open").map(asOpen);
-    const tasks = todayTasks(u, open, TODAY);
+    const tasks = todayTasks(u, open.map((j) => ({ ...j, offer_pending: offers.some((o) => o.job_id === j.id) })), TODAY);
     const ids = new Set(tasks.flatMap((x) => x.jobIds));
     return res({ today: TODAY, tasks, jobs: jobs.filter((j) => ids.has(j.id)), week: u.role === "tailor" ? { done: 5, onTime: 4 } : { done: 3, onTime: 3 } });
   }
@@ -143,7 +148,8 @@ export async function mockApi<T>(method: string, path: string, body: any, form?:
     let list = q ? jobs.filter((j) => j.name.toLowerCase().includes(q)) : jobs.filter((j) => j.status === "open");
     if (!q) {
       const ch = (j: AppJob, k: CheckKey) => j.checks.find((x) => x.key === k)!.value;
-      if (f === "m") list = list.filter((j) => (u.role === "tailor" ? j.tailor_id : j.seller_id) === u.id);
+      if (f === "m" && u.role === "smm") list = list.filter((j) => ["quality", "label", "video"].some((k) => !passes(j.checks.find((x) => x.key === k)!)));
+      else if (f === "m") list = list.filter((j) => (u.role === "tailor" ? j.tailor_id : j.seller_id) === u.id);
       if (f === "t") list = list.filter((j) => j.install_date === TODAY);
       if (f === "w") list = list.filter((j) => j.install_date >= TODAY && j.install_date <= add(6));
       if (f === "o") list = list.filter((j) => j.install_date < TODAY);
@@ -161,7 +167,7 @@ export async function mockApi<T>(method: string, path: string, body: any, form?:
   }
   if (a === "jobs" && b && method === "GET") {
     const j = find(b);
-    return res({ job: j, photos: j.checks.some((x) => x.value === "problem") ? [{ id: 1, caption: null, created_at: TODAY }] : [], history: history(j) });
+    return res({ job: j, photos: j.checks.some((x) => x.value === "problem") ? [{ id: 1, caption: null, created_at: TODAY }] : [], history: history(j), offer: j.status === "open" ? (offers.find((o) => o.job_id === j.id) ?? null) : null });
   }
   if (a === "jobs" && c === "check") {
     const j = find(b);
@@ -192,6 +198,21 @@ export async function mockApi<T>(method: string, path: string, body: any, form?:
     if (!d.ok) fail(400, d.reason);
     if (d.ok && d.exception && !body.reason) fail(400, "reason_required");
     Object.assign(j, { status: "done", closed_at: new Date().toISOString(), closed_by_name: u.name, closed_with_exception: d.ok && d.exception, exception_reason: body.reason ?? null });
+    return res({ ok: true });
+  }
+  if (a === "jobs" && c === "offer") {
+    const j = find(b);
+    if (u.role !== "tailor" || j.tailor_id !== u.id) fail(403, "forbidden");
+    offers.splice(0, offers.length, ...offers.filter((o) => o.job_id !== j.id));
+    offers.push({ id: Date.now(), job_id: j.id, old_date: j.install_date, new_date: body.date, reason: body.reason, proposed_by_name: u.name, created_at: new Date().toISOString() });
+    return res({ ok: true });
+  }
+  if (a === "offers" && c === "decide") {
+    if (u.role !== "admin") fail(403, "forbidden");
+    const i = offers.findIndex((o) => o.id === Number(b));
+    if (i < 0) fail(409, "already_decided");
+    const o = offers.splice(i, 1)[0]!;
+    if (body.approve) find(String(o.job_id)).install_date = o.new_date;
     return res({ ok: true });
   }
   if (a === "jobs" && c === "cancel") {

@@ -10,6 +10,7 @@ export const BACKUP_TABLES = [
   "job_checks",
   "job_events",
   "job_media",
+  "date_offers",
   "notifications_sent",
   "scheduler_runs",
 ] as const;

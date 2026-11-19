@@ -30,8 +30,10 @@ import {
   canClaimDelivered,
   canClose,
   canCreateJob,
+  canDecideDate,
   canEditJob,
   canManage,
+  canProposeDate,
   canSetCheck,
 } from "./rules/permissions";
 import { buildReport } from "./rules/reminders";
@@ -72,6 +74,7 @@ const STATUS: Record<act.ActionError, number> = {
   incomplete: 400,
   reason_required: 400,
   no_issue: 400,
+  already_decided: 409,
 };
 
 const failed = (f: act.Fail) => json({ error: f.error, missing: f.missing }, STATUS[f.error]);
@@ -193,7 +196,9 @@ export async function handleApi(req: Request, c: ApiContext): Promise<Response> 
       if (method === "POST" && cc === "close") return closeJob(c, me, jobId, await body(req));
       if (method === "POST" && cc === "cancel") return cancelJob(c, me, jobId);
       if (method === "POST" && cc === "edit") return editJob(c, me, jobId, await body(req));
+      if (method === "POST" && cc === "offer") return proposeDate(c, me, jobId, await body(req));
     }
+    if (method === "POST" && a === "offers" && b && cc === "decide") return decideDate(c, me, id(b), await body(req));
     if (method === "GET" && a === "media" && b) return media(c, id(b));
 
     // Admin only
@@ -257,11 +262,12 @@ async function jobsList(me: User, url: URL, today: string) {
 async function jobDetail(jobId: number) {
   const job = await repo.getJob(jobId);
   if (!job) return notFound();
-  const [checks, photos, hist, users] = await Promise.all([
+  const [checks, photos, hist, users, offer] = await Promise.all([
     repo.getChecks(jobId),
     repo.jobMedia(jobId),
     repo.history(jobId, 60),
     repo.listUsers(),
+    repo.pendingOffer(jobId),
   ]);
   // Tailor changes are stored as user ids: show names
   const names = new Map(users.map((u) => [String(u.id), u.name]));
@@ -282,6 +288,17 @@ async function jobDetail(jobId: number) {
     job: toAppJob(job, checks),
     photos: photos.map((p): AppPhoto => ({ id: p.id, caption: p.caption, created_at: iso(p.created_at)! })),
     history,
+    offer:
+      offer && job.status === "open"
+        ? {
+            id: offer.id,
+            old_date: offer.old_date,
+            new_date: offer.new_date,
+            reason: offer.reason,
+            proposed_by_name: offer.proposed_by_name,
+            created_at: iso(offer.created_at)!,
+          }
+        : null,
   };
   return json(out);
 }
@@ -394,6 +411,25 @@ async function editJob(c: ApiContext, me: User, jobId: number, b: Record<string,
   if (!r.ok) return failed(r);
   await later(c, r.followUp);
   return json({ ok: true, changed: r.changed });
+}
+
+async function proposeDate(c: ApiContext, me: User, jobId: number, b: Record<string, any>) {
+  const job = await repo.getJob(jobId);
+  if (!job) return notFound();
+  if (!canProposeDate(me, job)) return job.status !== "open" ? json({ error: "job_not_open" }, 409) : forbidden();
+  const r = await act.proposeDate(c.api, me, jobId, String(b.date ?? ""), String(b.reason ?? ""));
+  if (!r.ok) return failed(r);
+  await later(c, r.followUp);
+  return json({ ok: true, id: r.offerId });
+}
+
+async function decideDate(c: ApiContext, me: User, offerId: number | null, b: Record<string, any>) {
+  if (!canDecideDate(me)) return forbidden();
+  if (offerId === null) return notFound();
+  const r = await act.decideDate(c.api, me, offerId, b.approve === true);
+  if (!r.ok) return failed(r);
+  await later(c, r.followUp);
+  return json({ ok: true });
 }
 
 /** Photo through our server, so the bot token never reaches the phone. */

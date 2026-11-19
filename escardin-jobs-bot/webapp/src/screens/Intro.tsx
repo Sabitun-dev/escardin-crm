@@ -48,7 +48,7 @@ export function Intro({ role, onDone }: { role: Role; onDone: () => void }) {
   };
   useMainButton({ text: i < 2 ? t("next") : t("intro_go"), onClick: () => (i < 2 ? goTo(i + 1) : (haptic.success(), onDone())) });
 
-  const mine = CHECK_KEYS.filter((k) => role === "admin" || CHECKS[k].setBy === role);
+  const mine = CHECK_KEYS.filter((k) => role === "admin" || CHECKS[k].setBy === role || (role === "seller" && CHECKS[k].alsoSeller));
 
   return (
     <div className="intro" role="dialog" aria-label={t("intro1_title")}>

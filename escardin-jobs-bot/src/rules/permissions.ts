@@ -13,7 +13,8 @@ import {
   validPartlyAmount,
 } from "./checks";
 
-export type Role = "seller" | "tailor" | "admin";
+export type Role = "seller" | "tailor" | "smm" | "admin";
+export const ROLES: Role[] = ["seller", "tailor", "smm", "admin"];
 export type JobStatus = "open" | "done" | "cancelled";
 
 export interface Actor {
@@ -41,10 +42,17 @@ export const canManage = (a: Actor) => isAdmin(a);
 export function canSetCheck(a: Actor, j: JobRef, key: CheckKey): boolean {
   if (j.status !== "open") return false;
   if (isAdmin(a)) return true;
-  return CHECKS[key].setBy === "tailor" ? isOwnTailor(a, j) : isOwnSeller(a, j);
+  const def = CHECKS[key];
+  if (def.setBy === "tailor") return isOwnTailor(a, j) || (!!def.alsoSeller && isOwnSeller(a, j));
+  if (def.setBy === "smm") return a.role === "smm";
+  return false; // payment: admins only
 }
 
-export const canClaimDelivered = (a: Actor, j: JobRef) => j.status === "open" && (isAdmin(a) || isOwnSeller(a, j));
+/** The job's tailor may suggest a new install date; an admin approves or rejects it. */
+export const canProposeDate = (a: Actor, j: JobRef) => j.status === "open" && isOwnTailor(a, j);
+export const canDecideDate = (a: Actor) => isAdmin(a);
+
+export const canClaimDelivered =(a: Actor, j: JobRef) => j.status === "open" && (isAdmin(a) || isOwnSeller(a, j));
 
 export type CloseDecision =
   | { ok: true; exception: boolean; missing: CheckKey[] }
@@ -63,7 +71,7 @@ export function canClose(a: Actor, j: JobRef, rows: CheckRow[]): CloseDecision {
 
 // ---- Planning a check change (pure, so it can be tested) ----
 
-export type Audience = "seller" | "tailor" | "admins";
+export type Audience = "seller" | "tailor" | "smm" | "admins";
 
 export interface CheckInput {
   note?: string | null;
@@ -116,7 +124,9 @@ export function planCheckSet(
     prev.delivered_claimed !== next.delivered_claimed ||
     !!input.photoFileId;
 
-  const notify: Audience[] = changed && needsNote(key, value) ? ["seller", "admins"] : [];
+  // Materials issue: the seller must bring the rest. Quality problem (found by SMM): the tailor must fix it.
+  const notify: Audience[] =
+    !changed || !needsNote(key, value) ? [] : key === "quality" ? ["tailor", "seller", "admins"] : ["seller", "admins"];
   return { ok: true, changed, next, notify };
 }
 

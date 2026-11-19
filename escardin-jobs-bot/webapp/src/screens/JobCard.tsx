@@ -1,6 +1,6 @@
 // One job: header, the 6-step path, each step with who/when/note, actions, photos, history.
 import { useEffect, useRef, useState } from "react";
-import type { AppEvent, AppJob, AppUser, JobDetailResponse } from "../../../src/app-types";
+import type { AppEvent, AppJob, AppOffer, AppUser, JobDetailResponse } from "../../../src/app-types";
 import { needsNote, needsPromisedDate, paidAmount } from "../../../src/rules/checks";
 import { errText, useApp } from "../App";
 import { ApiError, photoUrl, post, request } from "../api";
@@ -23,15 +23,18 @@ import {
   nextStepFor,
   progressOf,
   stepState,
+  canDecide,
+  canOffer,
+  lockedText,
   valueName,
-  whoSets,
+  whoText,
   type CheckKey,
 } from "../steps";
 import { haptic, reducedMotion } from "../tg";
 import { DatePick } from "../ui/DatePick";
 import { Icon } from "../ui/Icon";
 import { HIDDEN, useBack, useMainButton, useToast } from "../ui/host";
-import { Avatar, Badge, Button, DueBadge, Empty, MoneyInput, Ring, Skel, StepPath, cx } from "../ui/kit";
+import { Avatar, Badge, Button, Chip, DueBadge, Empty, MoneyInput, Ring, Skel, StepPath, cx } from "../ui/kit";
 import { Sheet } from "../ui/Sheet";
 import { type StepExtra, StepSheet, toneOf } from "./StepSheet";
 
@@ -42,7 +45,8 @@ type SheetState =
   | { type: "exception" }
   | { type: "cancel" }
   | { type: "edit" }
-  | { type: "history" };
+  | { type: "history" }
+  | { type: "offer" };
 
 /** What the job looks like right after a change, before the server answers. */
 function applyLocal(job: AppJob, me: AppUser, key: CheckKey, value: string, x: StepExtra): AppJob {
@@ -153,13 +157,27 @@ export function JobCard({ id, step }: { id: number; step: CheckKey | null }) {
     }
   }
 
+  async function decide(offerId: number, approve: boolean) {
+    setBusy(true);
+    try {
+      await post(`offers/${offerId}/decide`, { approve });
+      toast(t(approve ? "approved" : "rejected"));
+      refreshAll();
+    } catch (e) {
+      toast(errText(e), "err");
+      reload();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const decision = job ? closeDecision(me, job) : null;
   const complete = job ? progressOf(job) === 6 : false;
   const canCloseNow = !!decision?.ok && !decision.exception;
   const next = job ? nextStepFor(me, job) : null;
 
   useMainButton(
-    !job || job.status !== "open" || party
+    !job || job.status !== "open" || party || (!!data?.offer && canDecide(me)) // admin answers the date request first
       ? null
       : canCloseNow
         ? { text: t("btn_close"), tone: "green", progress: busy, onClick: () => act("close", {}, "closed_ok") }
@@ -201,7 +219,7 @@ export function JobCard({ id, step }: { id: number; step: CheckKey | null }) {
       setSheet({ type: "step", key: k });
     } else if (open) {
       haptic.warn();
-      toast(t("locked_step", { who: whoSets(k) }), "info");
+      toast(lockedText(k), "info");
     }
   };
 
@@ -246,6 +264,8 @@ export function JobCard({ id, step }: { id: number; step: CheckKey | null }) {
         </div>
       </section>
 
+      {data.offer && open && <OfferBanner offer={data.offer} admin={canDecide(me)} busy={busy} onDecide={(ok) => decide(data.offer!.id, ok)} />}
+
       {/* Progress */}
       <section className="card" style={{ marginBottom: 12 }}>
         <div className="row" style={{ marginBottom: 18 }}>
@@ -268,6 +288,18 @@ export function JobCard({ id, step }: { id: number; step: CheckKey | null }) {
       {/* Other actions */}
       {open && (
         <div className="stack" style={{ marginBottom: 12 }}>
+          {canOffer(me, j) && checkOf(j, "ready").value !== "ready" && (
+            <>
+              {diffDays(today, j.install_date) <= 2 && !data.offer && (
+                <p className="small tone-amber row" style={{ margin: "0 4px", gap: 6, fontWeight: 600 }}>
+                  <Icon name="clock" size={18} /> {t("late_hint")}
+                </p>
+              )}
+              <Button kind="soft" icon="calendar" block onClick={() => setSheet({ type: "offer" })}>
+                {t("offer_btn")}
+              </Button>
+            </>
+          )}
           {!complete && decision && (decision.ok || decision.reason === "incomplete") && (
             <Button kind="plain" icon="flag" block onClick={() => setSheet({ type: "missing" })}>
               {t("btn_close_missing")}
@@ -306,6 +338,18 @@ export function JobCard({ id, step }: { id: number; step: CheckKey | null }) {
         <ExceptionSheet job={j} busy={busy} onClose={() => setSheet(null)} onSubmit={(reason) => act("close", { reason }, "closed_ok")} />
       )}
       {sheet?.type === "cancel" && <CancelSheet busy={busy} onClose={() => setSheet(null)} onYes={() => act("cancel", {}, "cancelled_ok")} />}
+      {sheet?.type === "offer" && (
+        <OfferSheet
+          job={j}
+          today={today}
+          onClose={() => setSheet(null)}
+          onSent={() => {
+            setSheet(null);
+            toast(t("offer_sent"));
+            refreshAll();
+          }}
+        />
+      )}
       {sheet?.type === "edit" && <EditSheet job={j} today={today} onClose={() => setSheet(null)} onSaved={refreshAll} />}
       {sheet?.type === "history" && (
         <Sheet label={t("history")} onClose={() => setSheet(null)}>
@@ -356,7 +400,7 @@ function StepRow(p: { job: AppJob; k: CheckKey; me: AppUser; today: string; onTa
             </span>
           </span>
           {c.updated_at && <span className="step-meta" style={{ display: "block" }}>{t("step_by", { who: shortName(c.updated_by_name ?? "—"), date: dateTime(c.updated_at) })}</span>}
-          {!c.updated_at && <span className="step-meta" style={{ display: "block" }}>{t(k === "video" || k === "payment" ? "who_seller" : "who_tailor")}</span>}
+          {!c.updated_at && <span className="step-meta" style={{ display: "block" }}>{whoText(k)}</span>}
           {c.note && <span className="step-note" style={{ display: "block" }}>{c.note}</span>}
           {c.promised_date && (
             <span className={cx("step-meta row", diffDays(p.today, c.promised_date) <= 0 && "tone-amber")} style={{ gap: 6 }}>
@@ -421,7 +465,7 @@ function MissingSheet(p: { job: AppJob; me: AppUser; onClose: () => void; onStep
               <span className="grow">
                 {checkNum(k)}. {checkName(k)}
                 <span className="small muted" style={{ display: "block", fontWeight: 400 }}>
-                  {mine ? valueName(k, c.value) : t("locked_step", { who: whoSets(k) })}
+                  {mine ? valueName(k, c.value) : lockedText(k)}
                 </span>
               </span>
               <Icon name={mine ? "chevron" : "lock"} size={20} className="muted" />
@@ -545,6 +589,102 @@ function EditSheet(p: { job: AppJob; today: string; onClose: () => void; onSaved
   );
 }
 
+function OfferBanner(p: { offer: AppOffer; admin: boolean; busy: boolean; onDecide: (approve: boolean) => void }) {
+  const o = p.offer;
+  return (
+    <section className="card" style={{ marginBottom: 12, borderColor: "var(--amber-deco)" }} aria-live="polite">
+      <div className="row" style={{ alignItems: "flex-start" }}>
+        <span className="tile-icon bg-amber">
+          <Icon name="calendar" size={24} />
+        </span>
+        <div className="grow">
+          <div className="label" style={{ margin: "0 0 2px" }}>
+            {t("offer_title")}
+          </div>
+          <div className="h2 num">{t("offer_change", { old: dateLong(o.old_date), new: dateLong(o.new_date) })}</div>
+          <div className="small" style={{ marginTop: 4, overflowWrap: "anywhere" }}>
+            {t("offer_by", { who: shortName(o.proposed_by_name), reason: o.reason })}
+          </div>
+          {!p.admin && <div className="small muted" style={{ marginTop: 4 }}>{t("offer_wait")}</div>}
+        </div>
+      </div>
+      {p.admin && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 14 }}>
+          <Button kind="danger" icon="x" size="sm" disabled={p.busy} onClick={() => p.onDecide(false)}>
+            {t("reject")}
+          </Button>
+          <Button kind="green" icon="check" size="sm" disabled={p.busy} onClick={() => p.onDecide(true)}>
+            {t("approve")}
+          </Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const OFFER_CHIPS: AppKey[] = ["offer_chip_fabric", "offer_chip_busy", "offer_chip_redo", "offer_chip_sick"];
+
+function OfferSheet(p: { job: AppJob; today: string; onClose: () => void; onSent: () => void }) {
+  const toast = useToast();
+  const [date, setDate] = useState<string | null>(null);
+  const [chip, setChip] = useState<AppKey | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<AppKey | null>(null);
+  const reason = [chip ? t(chip) : "", text.trim()].filter(Boolean).join(", ");
+
+  async function send() {
+    if (!date) return haptic.warn(), setErr("offer_need_date");
+    if (reason.length < 3) return haptic.warn(), setErr("note_required");
+    setBusy(true);
+    try {
+      await post(`jobs/${p.job.id}/offer`, { date, reason });
+      p.onSent();
+    } catch (e) {
+      toast(errText(e), "err");
+    } finally {
+      setBusy(false);
+    }
+  }
+  useMainButton({ text: t("send"), progress: busy, onClick: send });
+
+  return (
+    <Sheet label={t("offer_title")} onClose={p.onClose}>
+      <div className="sheet-head">
+        <span className="tile-icon bg-amber">
+          <Icon name="calendar" size={26} />
+        </span>
+        <div className="grow">
+          <div className="h2">{t("offer_title")}</div>
+          <div className="muted small">{t("offer_now", { date: dateLong(p.job.install_date, true) })}</div>
+        </div>
+      </div>
+      <div className="sheet-step">{t("offer_when")}</div>
+      {date && <p style={{ margin: "0 4px 10px", fontWeight: 600 }}>{dateLong(date, true)}</p>}
+      <DatePick
+        value={date}
+        onChange={(d) => (setDate(d), setErr(null))}
+        today={p.today}
+        quick={[
+          [1, "promise_tomorrow"],
+          [2, "promise_2"],
+          [3, "promise_3"],
+        ]}
+      />
+      <div className="sheet-step">{t("offer_why")}</div>
+      <div className="row-wrap" style={{ marginBottom: 10 }}>
+        {OFFER_CHIPS.map((c) => (
+          <Chip key={c} soft on={chip === c} onClick={() => (setChip(chip === c ? null : c), setErr(null))}>
+            {t(c)}
+          </Chip>
+        ))}
+      </div>
+      <textarea className="input" maxLength={250} placeholder={t("note_placeholder")} value={text} onChange={(e) => (setText(e.target.value), setErr(null))} />
+      {err && <p className="error-text">{t(err)}</p>}
+    </Sheet>
+  );
+}
+
 function Photos({ ids }: { ids: number[] }) {
   const [open, setOpen] = useState<string | null>(null);
   useBack(open ? () => setOpen(null) : null);
@@ -589,6 +729,10 @@ function eventText(e: AppEvent): string {
   switch (e.type) {
     case "check_set":
       return t("ev_check_set", { check: `${checkNum(e.check_key!)}. ${checkName(e.check_key!)}`, new: valueName(e.check_key!, e.new_value) });
+    case "date_offered":
+    case "date_approved":
+    case "date_rejected":
+      return t(`ev_${e.type}` as AppKey, { old: dateLong(e.old_value), new: dateLong(e.new_value) });
     case "created":
     case "delivered_claimed":
     case "closed":

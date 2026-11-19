@@ -143,6 +143,30 @@ CREATE TABLE scheduler_runs (
 );
 `,
   },
+  {
+    // New role "smm" (steps 3–5), and new install dates suggested by tailors for an admin to approve
+    version: 2,
+    sql: `
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('seller','tailor','smm','admin'));
+ALTER TABLE invites DROP CONSTRAINT IF EXISTS invites_role_check;
+ALTER TABLE invites ADD CONSTRAINT invites_role_check CHECK (role IN ('seller','tailor','smm','admin'));
+
+CREATE TABLE date_offers (
+  id SERIAL PRIMARY KEY,
+  job_id INT NOT NULL REFERENCES jobs(id),
+  proposed_by INT NOT NULL REFERENCES users(id),
+  old_date DATE NOT NULL,
+  new_date DATE NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','replaced')),
+  decided_by INT REFERENCES users(id),
+  decided_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX date_offers_job ON date_offers (job_id, status);
+`,
+  },
 ];
 
 export async function migrate(sql = db()): Promise<number[]> {

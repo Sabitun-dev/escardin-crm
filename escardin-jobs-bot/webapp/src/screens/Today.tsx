@@ -23,16 +23,15 @@ export const TASK_ICON: Record<TaskKind, IconName> = {
   get_payment: "coin",
   take_video: "video",
   close_job: "flag",
+  decide_date: "calendar",
   overdue: "clock",
   problems: "alert",
   materials_issues: "fabric",
-  unpaid_total: "coin",
 };
 
 export const taskTitle = (x: Task) => t(`task_${x.kind}` as AppKey, { n: x.jobIds.length, sum: money(x.amount) });
 
 function taskSub(x: Task, jobs: Map<number, AppJob>): string {
-  if (x.kind === "unpaid_total") return t("task_unpaid_sub", { n: x.jobIds.length });
   if (x.kind === "wait_materials") return t("task_wait_sub");
   if (x.kind === "get_payment" && x.amount) return money(x.amount);
   if (x.urgent > 0 && x.jobIds.length > 1) return t("urgent_n", { n: x.urgent });
@@ -51,7 +50,7 @@ export function Today() {
     else go({ name: "task", kind: x.kind });
   };
 
-  const first = data?.tasks.find((x) => x.kind !== "wait_materials" && x.kind !== "unpaid_total");
+  const first = data?.tasks.find((x) => x.kind !== "wait_materials");
   useMainButton(
     first
       ? { text: t("start"), onClick: () => open(first) }

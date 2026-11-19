@@ -12,6 +12,8 @@ import {
   type Role,
   canClose,
   planCheckSet,
+  canDecideDate,
+  canProposeDate,
   planClaimDelivered,
 } from "./rules/permissions";
 import type { OpenJob } from "./rules/reminders";
@@ -296,7 +298,13 @@ export async function listJobs(
   } else {
     conds.push(sql`j.status = 'open'`);
     if (filter === "m") {
-      conds.push(me.role === "tailor" ? sql`j.tailor_id = ${me.id}` : sql`j.seller_id = ${me.id}`);
+      if (me.role === "smm") {
+        // SMM: jobs where quality, label or video is still to do
+        conds.push(sql`EXISTS (SELECT 1 FROM job_checks c WHERE c.job_id = j.id
+          AND ((c.check_key = 'quality' AND c.value IS DISTINCT FROM 'ok')
+            OR (c.check_key = 'label' AND c.value IS DISTINCT FROM 'on')
+            OR (c.check_key = 'video' AND c.value IS DISTINCT FROM 'taken')))`);
+      } else conds.push(me.role === "tailor" ? sql`j.tailor_id = ${me.id}` : sql`j.seller_id = ${me.id}`);
     }
     if (filter === "t") conds.push(sql`j.install_date = ${today}`);
     if (filter === "w") conds.push(sql`j.install_date BETWEEN ${today} AND ${addDays(today, 6)}`);
@@ -327,7 +335,10 @@ export async function openJobsWithChecks(): Promise<(OpenJob & Job)[]> {
   const sql = db();
   const jobs = await sql<Job[]>`${JOB_SELECT(sql)} WHERE j.status = 'open' ORDER BY j.install_date, j.id`;
   const checks = await checksFor(jobs.map((j) => j.id));
-  return jobs.map((j) => ({ ...j, checks: checks.get(j.id) ?? ordered([]) }));
+  const offers = new Set(
+    (await sql<{ job_id: number }[]>`SELECT DISTINCT job_id FROM date_offers WHERE status = 'pending'`).map((r) => r.job_id),
+  );
+  return jobs.map((j) => ({ ...j, checks: checks.get(j.id) ?? ordered([]), offer_pending: offers.has(j.id) }));
 }
 
 // ---------------- Changing a job (each in one transaction) ----------------
@@ -509,4 +520,79 @@ export async function countPhotos(jobId: number): Promise<number> {
   const [{ count }] = await db()<{ count: number }[]>`
     SELECT count(*) AS count FROM job_media WHERE job_id = ${jobId} AND kind = 'photo'`;
   return count;
+}
+
+// ---------------- New install date suggested by the tailor ----------------
+
+export interface DateOffer {
+  id: number;
+  job_id: number;
+  proposed_by: number;
+  proposed_by_name: string;
+  old_date: string;
+  new_date: string;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "replaced";
+  created_at: Date;
+}
+
+const OFFER_SELECT = (sql: Sql) => sql`
+  SELECT o.*, u.name AS proposed_by_name FROM date_offers o JOIN users u ON u.id = o.proposed_by`;
+
+export async function pendingOffer(jobId: number): Promise<DateOffer | null> {
+  const sql = db();
+  const [o] = await sql<DateOffer[]>`${OFFER_SELECT(sql)} WHERE o.job_id = ${jobId} AND o.status = 'pending' ORDER BY o.id DESC LIMIT 1`;
+  return o ?? null;
+}
+
+export type OfferResult =
+  | { found: false }
+  | { found: true; job: Job; ok: false; error: "not_open" | "forbidden" | "same_date" }
+  | { found: true; job: Job; ok: true; offer: DateOffer };
+
+/** Saves the tailor's suggestion (a newer one replaces an older one still waiting). */
+export async function proposeDate(actor: Actor, jobId: number, newDate: string, reason: string): Promise<OfferResult> {
+  return db().begin(async (tx) => {
+    const job = await lockJob(tx, jobId);
+    if (!job) return { found: false } as const;
+    if (job.status !== "open") return { found: true, job, ok: false, error: "not_open" } as const;
+    if (!canProposeDate(actor, job)) return { found: true, job, ok: false, error: "forbidden" } as const;
+    if (job.install_date === newDate) return { found: true, job, ok: false, error: "same_date" } as const;
+    await tx`UPDATE date_offers SET status = 'replaced' WHERE job_id = ${jobId} AND status = 'pending'`;
+    const [{ id }] = await tx<{ id: number }[]>`
+      INSERT INTO date_offers (job_id, proposed_by, old_date, new_date, reason)
+      VALUES (${jobId}, ${actor.id}, ${job.install_date}, ${newDate}, ${reason}) RETURNING id`;
+    await addEvent(tx, { job: jobId, user: actor.id, type: "date_offered", old: job.install_date, new: newDate, note: reason });
+    const [offer] = await tx<DateOffer[]>`${OFFER_SELECT(tx)} WHERE o.id = ${id}`;
+    return { found: true, job, ok: true, offer } as const;
+  });
+}
+
+export type DecideResult =
+  | { found: false }
+  | { found: true; ok: false; error: "forbidden" | "already" | "not_open"; offer: DateOffer }
+  | { found: true; ok: true; offer: DateOffer; job: Job; approved: boolean };
+
+/** Admin approves (the install date changes) or rejects. A second tap finds it already decided. */
+export async function decideDate(actor: Actor, offerId: number, approve: boolean): Promise<DecideResult> {
+  return db().begin(async (tx) => {
+    const [offer] = await tx<DateOffer[]>`${OFFER_SELECT(tx)} WHERE o.id = ${offerId} FOR UPDATE OF o`;
+    if (!offer) return { found: false } as const;
+    if (!canDecideDate(actor)) return { found: true, ok: false, error: "forbidden", offer } as const;
+    if (offer.status !== "pending") return { found: true, ok: false, error: "already", offer } as const;
+    const job = await lockJob(tx, offer.job_id);
+    if (!job || job.status !== "open") return { found: true, ok: false, error: "not_open", offer } as const;
+    await tx`
+      UPDATE date_offers SET status = ${approve ? "approved" : "rejected"}, decided_by = ${actor.id}, decided_at = now()
+      WHERE id = ${offerId}`;
+    if (approve) await tx`UPDATE jobs SET install_date = ${offer.new_date} WHERE id = ${job.id}`;
+    await addEvent(tx, {
+      job: job.id,
+      user: actor.id,
+      type: approve ? "date_approved" : "date_rejected",
+      old: job.install_date,
+      new: offer.new_date,
+    });
+    return { found: true, ok: true, offer, job, approved: approve } as const;
+  });
 }

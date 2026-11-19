@@ -31,13 +31,17 @@ describe("daily reminder selection", () => {
     expect(selectReminders([mk(1, "2026-12-10", c)], ADMINS, TODAY)).toEqual([]);
   });
 
-  it("install in 0-2 days and not ready: tailor and seller", () => {
-    const r = selectReminders([mk(1, "2026-11-21")], ADMINS, TODAY);
+  it("install in 0-2 days and sewing not finished: tailor, seller, SMM and admins are warned", () => {
+    const r = selectReminders([mk(1, "2026-11-21")], ADMINS, TODAY, [6]);
     expect(r).toEqual([
       { kind: "not_ready", jobId: 1, userId: 4 },
-      { kind: "not_ready", jobId: 1, userId: 2 },
+      { kind: "not_ready_team", jobId: 1, userId: 2 },
+      { kind: "not_ready_team", jobId: 1, userId: 6 },
+      { kind: "not_ready_team", jobId: 1, userId: 1 },
+      { kind: "not_ready_team", jobId: 1, userId: 9 },
     ]);
-    expect(selectReminders([mk(2, "2026-11-22")], ADMINS, TODAY)).toEqual([]);
+    expect(selectReminders([mk(2, "2026-11-22")], ADMINS, TODAY, [6])).toEqual([]);
+    expect(selectReminders([mk(3, "2026-11-21", checks({ ready: "ready" }))], ADMINS, TODAY, [6])).toEqual([]);
   });
 
   it("install day or later with failing checks: every admin", () => {
@@ -65,7 +69,7 @@ describe("duplicate prevention", () => {
 
   it("seller who is also the tailor gets one not-ready reminder", () => {
     const r = selectReminders([mk(1, TODAY, checks(), { seller_id: 4, tailor_id: 4 })], [], TODAY);
-    expect(r.filter((x) => x.kind === "not_ready")).toHaveLength(1);
+    expect(r.filter((x) => x.kind === "not_ready" || x.kind === "not_ready_team")).toHaveLength(1);
   });
 });
 

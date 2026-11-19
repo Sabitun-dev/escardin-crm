@@ -5,7 +5,10 @@ export type CheckKey = (typeof CHECK_KEYS)[number];
 
 export interface CheckDef {
   short: string; // one letter for button data
-  setBy: "tailor" | "seller";
+  /** Who sets it: 1–2 the job's tailor (1 also its seller), 3–5 any SMM person (also quality control), 6 an admin.
+   *  Admins can set every step. */
+  setBy: "tailor" | "smm" | "admin";
+  alsoSeller?: boolean;
   values: readonly string[];
   pass: string;
 }
@@ -14,14 +17,15 @@ export const CHECKS: Record<CheckKey, CheckDef> = {
   materials: {
     short: "m",
     setBy: "tailor",
+    alsoSeller: true,
     values: ["all_received", "incomplete", "wrong_item", "not_enough", "bad_quality", "other"],
     pass: "all_received",
   },
   ready: { short: "r", setBy: "tailor", values: ["ready", "not_ready"], pass: "ready" },
-  quality: { short: "q", setBy: "tailor", values: ["ok", "problem"], pass: "ok" },
-  label: { short: "l", setBy: "tailor", values: ["on", "off"], pass: "on" },
-  video: { short: "v", setBy: "seller", values: ["taken", "none"], pass: "taken" },
-  payment: { short: "p", setBy: "seller", values: ["paid", "partly", "unpaid"], pass: "paid" },
+  quality: { short: "q", setBy: "smm", values: ["ok", "problem"], pass: "ok" },
+  label: { short: "l", setBy: "smm", values: ["on", "off"], pass: "on" },
+  video: { short: "v", setBy: "smm", values: ["taken", "none"], pass: "taken" },
+  payment: { short: "p", setBy: "admin", values: ["paid", "partly", "unpaid"], pass: "paid" },
 };
 
 export const keyFromShort = (s: string): CheckKey | undefined =>

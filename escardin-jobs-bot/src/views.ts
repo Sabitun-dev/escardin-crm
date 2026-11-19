@@ -2,7 +2,7 @@
 import { InlineKeyboard } from "grammy";
 import { cfg } from "./config";
 import { type Key, type Lang, esc, money, t } from "./i18n";
-import type { Job, JobEvent, ListFilter, ListItem, User } from "./repo";
+import type { DateOffer, Job, JobEvent, ListFilter, ListItem, User } from "./repo";
 import { FILTERS, PAGE_SIZE } from "./repo";
 import { CHECKS, CHECK_KEYS, type CheckKey, type CheckRow, isComplete, ordered, passes, progress } from "./rules/checks";
 import {
@@ -13,8 +13,10 @@ import {
   canCreateJob,
   canEditJob,
   canManage,
+  canProposeDate,
   canSetCheck,
   isAdmin,
+  ROLES,
 } from "./rules/permissions";
 import type { ReportSections } from "./rules/reminders";
 import { diffDays, fmtDate, fmtDateTime } from "./time";
@@ -170,7 +172,7 @@ export function listView(
 
 // ---------- job card ----------
 
-export function cardView(lang: Lang, u: User, job: Job, rows: CheckRow[], today: string, photoCount: number): View {
+export function cardView(lang: Lang, u: User, job: Job, rows: CheckRow[], today: string, photoCount: number, offer: DateOffer | null = null): View {
   const c = ordered(rows);
   const lines = [
     t(lang, "card_header", {
@@ -188,6 +190,9 @@ export function cardView(lang: Lang, u: User, job: Job, rows: CheckRow[], today:
   }
   if (job.status === "cancelled") {
     lines.push("", t(lang, "card_cancelled", { date: fmtDateTime(job.closed_at), by: esc(job.closed_by_name ?? "—") }));
+  }
+  if (offer && job.status === "open") {
+    lines.push("", t(lang, "offer_line", { new: fmtDate(offer.new_date), who: esc(offer.proposed_by_name), reason: esc(offer.reason) }));
   }
   lines.push("", `${bar(progress(c))} ${progress(c)}/6`, "");
 
@@ -215,6 +220,8 @@ export function cardView(lang: Lang, u: User, job: Job, rows: CheckRow[], today:
       if (i % 2 === 1) kb.row();
     });
     if (settable.length % 2 === 1) kb.row();
+    if (canProposeDate(u, job) && c[1].value !== "ready") kb.text(t(lang, "btn_offer_date"), `do:${job.id}`).row();
+    if (offer && isAdmin(u)) kb.text(t(lang, "btn_approve"), `oa:${offer.id}`).text(t(lang, "btn_reject"), `or:${offer.id}`).row();
     if (canClaimDelivered(u, job) && c[0].value && c[0].value !== "all_received" && !c[0].delivered_claimed) {
       kb.text(t(lang, "btn_delivered"), `dl:${job.id}`).row();
     }
@@ -248,6 +255,11 @@ export function eventText(lang: Lang, e: JobEvent): string {
   switch (e.event_type) {
     case "check_set":
       text = t(lang, "ev_check_set", { check: `${checkNum(e.check_key!)}. ${checkName(lang, e.check_key!)}`, old: v(e.old_value), new: v(e.new_value) });
+      break;
+    case "date_offered":
+    case "date_approved":
+    case "date_rejected":
+      text = t(lang, `ev_${e.event_type}` as Key, { old: fmtDate(e.old_value), new: fmtDate(e.new_value) });
       break;
     case "created":
     case "delivered_claimed":
@@ -327,9 +339,7 @@ export function userView(lang: Lang, u: User, me: User): View {
   const status = !u.is_active ? t(lang, "user_inactive") : !u.is_reachable ? t(lang, "user_unreachable") : t(lang, "user_active");
   const kb = new InlineKeyboard();
   if (u.id !== me.id) {
-    (["seller", "tailor", "admin"] as Role[])
-      .filter((r) => r !== u.role)
-      .forEach((r) => kb.text(t(lang, "btn_make", { role: roleName(lang, r) }), `ur:${u.id}:${r[0]}`));
+    ROLES.filter((r) => r !== u.role).forEach((r) => kb.text(t(lang, "btn_make", { role: roleName(lang, r) }), `ur:${u.id}:${roleLetter(r)}`));
     kb.row().text(u.is_active ? t(lang, "btn_deactivate") : t(lang, "btn_activate"), `ua:${u.id}`).row();
   }
   kb.text(t(lang, "btn_back"), "u");
@@ -339,7 +349,9 @@ export function userView(lang: Lang, u: User, me: User): View {
   };
 }
 
-export const roleFromLetter = (l: string): Role | null => (l === "s" ? "seller" : l === "t" ? "tailor" : l === "a" ? "admin" : null);
+/** One letter per role for button data: s seller, t tailor, m smm, a admin */
+export const roleLetter = (r: Role) => (r === "smm" ? "m" : r[0]!);
+export const roleFromLetter = (l: string): Role | null => ROLES.find((r) => roleLetter(r) === l) ?? null;
 
 // ---------- report ----------
 

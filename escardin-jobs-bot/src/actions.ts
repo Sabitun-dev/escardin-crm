@@ -8,8 +8,8 @@ import { audienceUsers, notifyMany, postToGroup } from "./notify";
 import * as repo from "./repo";
 import type { EditField, Job, User } from "./repo";
 import { CHECKS, type CheckKey } from "./rules/checks";
-import { type CheckInput, type Role, canCancelJob, canCreateJob, canEditJob, canManage } from "./rules/permissions";
-import { fmtDate } from "./time";
+import { type CheckInput, ROLES, type Role, canCancelJob, canCreateJob, canDecideDate, canEditJob, canManage } from "./rules/permissions";
+import { fmtDate, todayLocal } from "./time";
 import * as v from "./views";
 
 export type ActionError =
@@ -24,7 +24,8 @@ export type ActionError =
   | "incomplete"
   | "reason_required"
   | "no_issue"
-  | "self_forbidden";
+  | "self_forbidden"
+  | "already_decided";
 
 export type Fail = { ok: false; error: ActionError; missing?: CheckKey[] };
 type FollowUp = { followUp: () => Promise<void> };
@@ -290,18 +291,70 @@ export async function editJob(
   return { ok: true, changed: true, followUp };
 }
 
+// ---------------- new install date: tailor suggests, admin decides ----------------
+
+/** Buttons for admins under a date suggestion. */
+export const offerKb = (lang: Lang, offerId: number, jobId: number) =>
+  v.openKb(lang, jobId, new InlineKeyboard().text(t(lang, "btn_approve"), `oa:${offerId}`).text(t(lang, "btn_reject"), `or:${offerId}`));
+
+export async function proposeDate(
+  api: Api,
+  me: User,
+  jobId: number,
+  date: string,
+  rawReason: string,
+): Promise<Result<{ offerId: number } & FollowUp>> {
+  const reason = cleanName(String(rawReason ?? "")).slice(0, 300);
+  if (!isIsoDate(date) || date < todayLocal() || reason.length < 3) return fail("bad_input");
+  const r = await repo.proposeDate(me, jobId, date, reason);
+  if (!r.found) return fail("not_found");
+  if (!r.ok) return fail(r.error === "not_open" ? "job_not_open" : r.error === "same_date" ? "bad_input" : "forbidden");
+  const { job, offer } = r;
+  const p = { name: esc(job.name), old: fmtDate(offer.old_date), new: fmtDate(offer.new_date), who: who(me), reason: esc(reason) };
+  const followUp = async () => {
+    await postToGroup(api, job, t(glang(), "g_date_offer", p));
+    await notifyMany(api, await repo.activeUsers("admin"), (lang) => ({ text: t(lang, "n_date_offer", p), kb: offerKb(lang, offer.id, job.id) }), me.id);
+  };
+  return { ok: true, offerId: offer.id, followUp };
+}
+
+export async function decideDate(api: Api, me: User, offerId: number, approve: boolean): Promise<Result<{ jobId: number } & FollowUp>> {
+  if (!canDecideDate(me)) return fail("forbidden");
+  const r = await repo.decideDate(me, offerId, approve);
+  if (!r.found) return fail("not_found");
+  if (!r.ok) return fail(r.error === "already" ? "already_decided" : r.error === "not_open" ? "job_not_open" : "forbidden");
+  const { job, offer } = r;
+  const p = { name: esc(job.name), old: fmtDate(offer.old_date), new: fmtDate(offer.new_date), by: who(me), who: who(me) };
+  const followUp = async () => {
+    const gl = glang();
+    if (approve) {
+      await postToGroup(api, job, t(gl, "g_date_approved", p));
+      await notifyMany(
+        api,
+        await audienceUsers(job, ["tailor", "seller", "smm", "admins"]),
+        (lang) => ({ text: t(lang, "n_date_approved", p), kb: v.openKb(lang, job.id) }),
+        me.id,
+      );
+    } else {
+      await postToGroup(api, job, t(gl, "g_date_rejected", p));
+      await notifyMany(api, await audienceUsers(job, ["tailor"]), (lang) => ({ text: t(lang, "n_date_rejected", p), kb: v.openKb(lang, job.id) }), me.id);
+    }
+  };
+  return { ok: true, jobId: job.id, followUp };
+}
+
 // ---------------- users and invites (admin) ----------------
 
 export async function createInvite(me: User, role: Role, rawName: string): Promise<Result<{ code: string; name: string }>> {
   if (!canManage(me)) return fail("forbidden");
   const name = cleanName(String(rawName ?? ""));
-  if (!["seller", "tailor", "admin"].includes(role) || name.length < 1 || name.length > 60) return fail("bad_input");
+  if (!ROLES.includes(role) || name.length < 1 || name.length > 60) return fail("bad_input");
   return { ok: true, code: await repo.createInvite(role, name, me.id), name };
 }
 
 export async function setUserRole(me: User, userId: number, role: Role): Promise<Result> {
   if (!canManage(me)) return fail("forbidden");
-  if (!["seller", "tailor", "admin"].includes(role)) return fail("bad_input");
+  if (!ROLES.includes(role)) return fail("bad_input");
   if (userId === me.id) return fail("self_forbidden");
   if (!(await repo.userById(userId))) return fail("not_found");
   await repo.setUserRole(userId, role);

@@ -10,9 +10,12 @@ export interface OpenJob {
   seller_id: number;
   tailor_id: number;
   checks: CheckRow[];
+  /** A new install date suggested by the tailor, waiting for an admin */
+  offer_pending?: boolean;
 }
 
-export type ReminderKind = "mat_due_seller" | "mat_due_tailor" | "not_ready" | "install_failing";
+// not_ready goes to the tailor (with "suggest a new date"); not_ready_team to the seller, SMM people and admins
+export type ReminderKind = "mat_due_seller" | "mat_due_tailor" | "not_ready" | "not_ready_team" | "install_failing";
 
 export interface Candidate {
   kind: ReminderKind;
@@ -20,7 +23,7 @@ export interface Candidate {
   userId: number;
 }
 
-export function selectReminders(jobs: OpenJob[], adminUserIds: number[], today: string): Candidate[] {
+export function selectReminders(jobs: OpenJob[], adminUserIds: number[], today: string, smmUserIds: number[] = []): Candidate[] {
   const out: Candidate[] = [];
   const push = (c: Candidate) => {
     if (!out.some((o) => o.kind === c.kind && o.jobId === c.jobId && o.userId === c.userId)) out.push(c);
@@ -39,10 +42,12 @@ export function selectReminders(jobs: OpenJob[], adminUserIds: number[], today: 
       push({ kind: "mat_due_tailor", jobId: j.id, userId: j.tailor_id });
     }
 
-    // 2. Install in 0-2 days and curtain not ready
+    // 2. Install in 0-2 days and the sewing is not finished: everyone on the job is warned
     if (daysToInstall >= 0 && daysToInstall <= 2 && ready.value !== "ready") {
       push({ kind: "not_ready", jobId: j.id, userId: j.tailor_id });
-      push({ kind: "not_ready", jobId: j.id, userId: j.seller_id });
+      for (const id of [j.seller_id, ...smmUserIds, ...adminUserIds]) {
+        if (id !== j.tailor_id) push({ kind: "not_ready_team", jobId: j.id, userId: id });
+      }
     }
 
     // 3. Install day or later with any failing check

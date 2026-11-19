@@ -63,4 +63,9 @@ export function nextStepFor(me: AppUser, j: AppJob): CheckKey | null {
   return CHECK_KEYS.find((k) => !passes(checkOf(j, k)) && canSet(me, j, k)) ?? null;
 }
 
-export const whoSets = (k: CheckKey) => (CHECKS[k].setBy === "tailor" ? t("tailor") : t("seller")).toLowerCase();
+/** "Bu bosqichni SMM xodimi belgilaydi" — shown when someone taps a step that is not theirs */
+export const lockedText = (k: CheckKey) => t(`locked_${CHECKS[k].setBy}` as AppKey);
+/** "SMM xodimi belgilaydi" — under a step nobody has set yet */
+export const whoText = (k: CheckKey) => t(`who_${CHECKS[k].setBy}` as AppKey);
+export const canOffer = (me: AppUser, j: AppJob) => perm.canProposeDate(me, j);
+export const canDecide = (me: AppUser) => perm.canDecideDate(me);

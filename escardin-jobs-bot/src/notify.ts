@@ -111,6 +111,7 @@ export async function audienceUsers(job: Pick<Job, "seller_id" | "tailor_id">, a
     const tl = await userById(job.tailor_id);
     if (tl) out.push(tl);
   }
+  if (audience.includes("smm")) out.push(...(await activeUsers("smm")));
   if (audience.includes("admins")) out.push(...(await activeUsers("admin")));
   return out;
 }

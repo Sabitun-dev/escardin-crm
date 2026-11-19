@@ -43,7 +43,7 @@ export function Profile() {
               {me.name}
             </div>
             <div style={{ marginTop: 6 }}>
-              <Badge tone="gold" icon={me.role === "tailor" ? "needle" : me.role === "admin" ? "shield" : "user"}>
+              <Badge tone="gold" icon={me.role === "tailor" ? "needle" : me.role === "admin" ? "shield" : me.role === "smm" ? "video" : "user"}>
                 {t(`role_${me.role}` as AppKey)}
               </Badge>
             </div>
@@ -73,7 +73,7 @@ export function Profile() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {CHECK_KEYS.map((k, i) => (
               <div key={k} className="row" style={{ gap: 10, padding: 8, borderRadius: 12, background: "var(--bg)" }}>
-                <span className={cx("tile-icon", CHECKS[k].setBy === "tailor" ? "bg-grey" : "bg-gold")} style={{ width: 36, height: 36, borderRadius: 10 }}>
+                <span className={cx("tile-icon", CHECKS[k].setBy === "tailor" ? "bg-grey" : CHECKS[k].setBy === "smm" ? "bg-green" : "bg-gold")} style={{ width: 36, height: 36, borderRadius: 10 }}>
                   <Icon name={STEP_ICON[k]} size={20} />
                 </span>
                 <span className="small clip">
@@ -83,7 +83,7 @@ export function Profile() {
             ))}
           </div>
           <p className="small muted" style={{ margin: "14px 4px 4px" }}>
-            {t("help_tailor_part")} · {t("help_seller_part")}
+            {t("help_parts")}
             <br />
             {t("help_close")}
           </p>

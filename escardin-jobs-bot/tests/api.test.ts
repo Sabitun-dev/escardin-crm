@@ -31,6 +31,8 @@ vi.mock("../src/actions", () => {
     createInvite: ok({ code: "ABCDEFGH", name: "New" }),
     setUserRole: ok(),
     setUserActive: ok(),
+    proposeDate: ok({ offerId: 5 }),
+    decideDate: ok({ jobId: 10 }),
   };
 });
 
@@ -58,7 +60,8 @@ const SELLER = person(2, "seller");
 const OTHER_SELLER = person(3, "seller");
 const TAILOR = person(4, "tailor");
 const OTHER_TAILOR = person(5, "tailor");
-const PEOPLE = [ADMIN, SELLER, OTHER_SELLER, TAILOR, OTHER_TAILOR];
+const SMM = person(6, "smm");
+const PEOPLE = [ADMIN, SELLER, OTHER_SELLER, TAILOR, OTHER_TAILOR, SMM];
 
 const JOB: Job = {
   id: 10,
@@ -130,10 +133,14 @@ describe("sign-in", () => {
 describe("permissions per role", () => {
   const check = (as: User, key: string, value: string) => call(as, "POST", "jobs/10/check", { key, value });
 
-  it("tailor: own tailor checks only, cannot create, cancel, edit or manage", async () => {
+  it("tailor: steps 1–2 on own jobs, suggests dates; cannot create, cancel, edit or manage", async () => {
     expect((await check(TAILOR, "ready", "ready")).status).toBe(200);
+    expect((await check(TAILOR, "quality", "ok")).status).toBe(403);
     expect((await check(TAILOR, "payment", "paid")).status).toBe(403);
     expect((await check(TAILOR, "video", "taken")).status).toBe(403);
+    expect((await call(TAILOR, "POST", "jobs/10/offer", { date: "2026-11-27", reason: "Mato kech keldi" })).status).toBe(200);
+    expect((await call(OTHER_TAILOR, "POST", "jobs/10/offer", { date: "2026-11-27", reason: "x" })).status).toBe(403);
+    expect((await call(TAILOR, "POST", "offers/5/decide", { approve: true })).status).toBe(403);
     expect((await check(OTHER_TAILOR, "ready", "ready")).status).toBe(403);
     expect((await call(TAILOR, "POST", "jobs", { name: "X", install_date: "2026-11-30", price: 1, tailor_id: 4 })).status).toBe(403);
     expect((await call(TAILOR, "POST", "jobs/10/cancel")).status).toBe(403);
@@ -144,11 +151,11 @@ describe("permissions per role", () => {
     expect(act.setCheck).toHaveBeenCalledTimes(1);
   });
 
-  it("seller: own video and payment, edit and close own job; nothing on others' jobs", async () => {
-    expect((await check(SELLER, "payment", "paid")).status).toBe(200);
-    expect((await check(SELLER, "video", "taken")).status).toBe(200);
-    expect((await check(SELLER, "ready", "ready")).status).toBe(403);
-    expect((await check(OTHER_SELLER, "payment", "paid")).status).toBe(403);
+  it("seller: step 1 on own jobs, edit and close own job; nothing on others' jobs", async () => {
+    expect((await check(SELLER, "materials", "all_received")).status).toBe(200);
+    expect((await check(OTHER_SELLER, "materials", "all_received")).status).toBe(403);
+    for (const [k, val] of [["ready", "ready"], ["video", "taken"], ["payment", "paid"]]) expect((await check(SELLER, k, val)).status).toBe(403);
+    expect((await call(SELLER, "POST", "jobs/10/offer", { date: "2026-11-27", reason: "x" })).status).toBe(403);
     expect((await call(SELLER, "POST", "jobs/10/edit", { field: "name", value: "Y" })).status).toBe(200);
     expect((await call(OTHER_SELLER, "POST", "jobs/10/edit", { field: "name", value: "Y" })).status).toBe(403);
     expect((await call(SELLER, "POST", "jobs/10/delivered")).status).toBe(200);
@@ -160,13 +167,25 @@ describe("permissions per role", () => {
     expect((await call(SELLER, "POST", "backup")).status).toBe(403);
   });
 
+  it("SMM: steps 3–5 on any job, nothing else", async () => {
+    for (const [k, val] of [["quality", "ok"], ["label", "on"], ["video", "taken"]]) expect((await check(SMM, k, val)).status).toBe(200);
+    vi.mocked(repo.getJob).mockResolvedValue({ ...JOB, seller_id: 77, tailor_id: 88 });
+    expect((await check(SMM, "label", "on")).status).toBe(200);
+    for (const [k, val] of [["materials", "all_received"], ["ready", "ready"], ["payment", "paid"]]) expect((await check(SMM, k, val)).status).toBe(403);
+    expect((await call(SMM, "POST", "jobs", { name: "X", install_date: "2026-11-30", price: 1, tailor_id: 4 })).status).toBe(403);
+    expect((await call(SMM, "POST", "jobs/10/close")).status).toBe(403);
+    expect((await call(SMM, "GET", "users")).status).toBe(403);
+  });
+
   it("seller can close own job at 6/6 (the action re-checks inside a transaction)", async () => {
     vi.mocked(repo.getChecks).mockResolvedValue(allPass());
     expect((await call(SELLER, "POST", "jobs/10/close")).status).toBe(200);
     expect(act.closeJob).toHaveBeenCalledWith(expect.anything(), SELLER, 10, null);
   });
 
-  it("admin: any check, cancel, users, invites, report", async () => {
+  it("admin: any check (payment only by admins), decides dates, cancel, users, invites, report", async () => {
+    expect((await call(ADMIN, "POST", "offers/5/decide", { approve: true })).status).toBe(200);
+    expect(act.decideDate).toHaveBeenCalledWith(expect.anything(), ADMIN, 5, true);
     for (const [k, val] of [["materials", "all_received"], ["payment", "paid"]]) expect((await check(ADMIN, k, val)).status).toBe(200);
     expect((await call(ADMIN, "POST", "jobs/10/cancel")).status).toBe(200);
     expect((await call(ADMIN, "GET", "users")).status).toBe(200);
@@ -184,7 +203,7 @@ describe("permissions per role", () => {
 
   it("an action error is passed on with its code", async () => {
     vi.mocked(act.setCheck).mockResolvedValueOnce({ ok: false, error: "note_required" });
-    const res = await check(TAILOR, "quality", "problem");
+    const res = await check(SMM, "quality", "problem");
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "note_required" });
   });
@@ -192,8 +211,8 @@ describe("permissions per role", () => {
   it("the same request sent twice (double tap) runs once", async () => {
     vi.mocked(repo.markRun).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     const h = { "x-request-id": "req-12345678" };
-    expect((await call(SELLER, "POST", "jobs/10/check", { key: "payment", value: "paid" }, h)).status).toBe(200);
-    expect((await call(SELLER, "POST", "jobs/10/check", { key: "payment", value: "paid" }, h)).status).toBe(409);
+    expect((await call(ADMIN, "POST", "jobs/10/check", { key: "payment", value: "paid" }, h)).status).toBe(200);
+    expect((await call(ADMIN, "POST", "jobs/10/check", { key: "payment", value: "paid" }, h)).status).toBe(409);
     expect(act.setCheck).toHaveBeenCalledTimes(1);
   });
 });

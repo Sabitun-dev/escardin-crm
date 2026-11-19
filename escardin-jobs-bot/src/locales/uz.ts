@@ -11,6 +11,7 @@ const uz = {
   role_seller: "Sotuvchi",
   role_tailor: "Tikuvchi",
   role_admin: "Administrator",
+  role_smm: "SMM xodimi",
   menu_title: "<b>Escardin · Ishlar</b>\n{name} ({role})",
   btn_new_job: "➕ Yangi ish",
   btn_jobs: "📋 Ishlar",
@@ -31,7 +32,8 @@ const uz = {
     "• <b>Yangi ish</b> — sotuvchi ish ochadi: nomi, o'rnatish sanasi, tikuvchi, narxi.\n" +
     "• <b>Ishlar</b> — barcha ishlar, filtrlar va qidiruv.\n" +
     "• Har bir ishda 6 ta tekshiruv bor. Hammasi ✅ bo'lsa, ish yopiladi.\n" +
-    "• 1–4 ni tikuvchi, 5–6 ni sotuvchi belgilaydi.\n" +
+    "• 1–2 ni tikuvchi (1 ni sotuvchi ham), 3–5 ni SMM xodimi, 6 ni administrator belgilaydi.\n" +
+    "• Tikuvchi kechiksa, yangi sana taklif qiladi; administrator tasdiqlaydi.\n" +
     "• Har kuni {daily} da eslatmalar keladi.\n\n" +
     "Tilni tanlang:",
   lang_set: "Til o'zgartirildi.",
@@ -236,6 +238,27 @@ const uz = {
   rem_failing: "🚨 <b>{name}</b>: o'rnatish {date} ({due}), o'tmagan tekshiruvlar: {list}",
 
   // Buyruqlar
+  // Yangi sana taklifi
+  btn_offer_date: "📅 Yangi sana taklif qilish",
+  btn_approve: "✅ Tasdiqlash",
+  btn_reject: "❌ Rad etish",
+  ask_offer_date: "<b>{name}</b>\nHozirgi o'rnatish sanasi: {date}.\nQaysi sanaga tayyor bo'ladi? Tanlang yoki yozing (25.11).",
+  ask_offer_reason: "Sababini qisqacha yozing (masalan: mato kech keldi):",
+  offer_sent: "Taklif administratorga yuborildi.",
+  offer_line: "📅 Yangi sana taklifi: {new} ({who}) — administrator javobini kutyapti\nSabab: {reason}",
+  already_decided: "Bu taklif allaqachon ko'rib chiqilgan.",
+  offer_date_past: "Sana bugundan oldin bo'lmasin.",
+  g_date_offer: "<b>{name}</b>\n📅 {who} yangi sana taklif qildi: {old} → {new}\nSabab: {reason}",
+  n_date_offer: "📅 <b>{name}</b>: tikuvchi {who} o'rnatish sanasini o'zgartirishni so'rayapti: {old} → {new}\nSabab: {reason}",
+  g_date_approved: "<b>{name}</b>\n✅ Yangi sana tasdiqlandi: {old} → {new} — {who}",
+  n_date_approved: "📅 <b>{name}</b>: o'rnatish sanasi o'zgardi {old} → {new} ({by} tasdiqladi)",
+  g_date_rejected: "<b>{name}</b>\n❌ Yangi sana ({new}) rad etildi — {who}",
+  n_date_rejected: "❌ <b>{name}</b>: yangi sana ({new}) rad etildi ({by}). Sana o'zgarmadi: {old}.",
+  rem_not_ready_team: "⚠️ <b>{name}</b>: o'rnatish {date} ({due}), lekin tikuvchi {tailor} hali tikib bo'lmadi.",
+  ev_date_offered: "yangi sana taklifi: {old} → {new}",
+  ev_date_approved: "yangi sana tasdiqlandi: {old} → {new}",
+  ev_date_rejected: "yangi sana rad etildi: {new}",
+
   cmd_start: "Boshlash",
   cmd_menu: "Asosiy menyu",
   cmd_help: "Yordam",

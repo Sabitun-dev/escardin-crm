@@ -6,7 +6,8 @@ without the right people knowing.
 
 - Runs on **Netlify** (free plan is enough), with a free **Neon PostgreSQL** database.
 - Speaks **Uzbek** (default) and **English**; each person picks their language under ❓ Help.
-- Roles: **seller**, **tailor**, **admin**. Nobody can use the bot without an invite from an admin.
+- Roles: **seller**, **tailor**, **SMM** (also quality control), **admin**. Nobody can use the bot without an
+  invite from an admin.
 - Every job and every change is also posted to your **team Telegram group**, as a reply thread per job,
   so workers can discuss each job in one place.
 
@@ -14,18 +15,23 @@ without the right people knowing.
 
 | Check | Set by | Passes when |
 |---|---|---|
-| 1. Materials from seller | Tailor | All received |
-| 2. Curtain is ready | Tailor | Ready |
-| 3. No problems (photo required for a problem) | Tailor | No problems |
-| 4. Brand label attached | Tailor | Label on |
-| 5. Video taken for SMM (approval only) | Seller | Video taken |
-| 6. Client payment (with amounts in so'm) | Seller | Paid |
+| 1. Materials from seller | The job's tailor or seller | All received |
+| 2. Curtain is ready | The job's tailor | Ready |
+| 3. No problems (photo required for a problem) | SMM (any SMM person) | No problems |
+| 4. Brand label attached | SMM | Label on |
+| 5. Video taken for SMM (approval only) | SMM | Video taken |
+| 6. Client payment (with amounts in so'm) | Admin | Paid |
 
-A seller closes their own job only at 6/6. An admin can close with an exception and a written reason.
-Admins can set any check.
+A seller closes their own job only at 6/6. An admin can close any job, below 6/6 with an exception and a
+written reason. Admins can set any check. When SMM finds a problem, the tailor, the seller and the admins are told.
 
-**Reminders** (every day at 09:00 Tashkent): promised materials not delivered, curtain not ready
-0 to 2 days before install, and failing checks on install day or later.
+**New install date.** If the tailor will not finish in time, they tap **📅 Yangi sana taklif qilish**, pick a
+date and write the reason. Admins get **✅ Tasdiqlash / ❌ Rad etish**. When approved, the date changes and the
+tailor, seller, SMM and admins are told (and the team group). When rejected, the tailor is told.
+
+**Reminders** (every day at 09:00 Tashkent): promised materials not delivered; curtain not ready 0 to 2 days
+before install (the tailor, the seller, SMM people and admins are all warned, and the tailor's message has the
+"suggest a new date" button); and failing checks on install day or later.
 **Weekly report** to admins every Sunday at 18:00, and any time from 📊 Reports.
 **Backups** every day, kept for 14 days; admins get the latest with 💾 Backup or `/backup`.
 

@@ -82,10 +82,21 @@ export interface JobsResponse {
   pageSize: number;
 }
 
+/** A new install date suggested by the tailor, waiting for an admin */
+export interface AppOffer {
+  id: number;
+  old_date: string;
+  new_date: string;
+  reason: string;
+  proposed_by_name: string;
+  created_at: string;
+}
+
 export interface JobDetailResponse {
   job: AppJob;
   photos: AppPhoto[];
   history: AppEvent[];
+  offer: AppOffer | null;
 }
 
 export interface ReportItem {

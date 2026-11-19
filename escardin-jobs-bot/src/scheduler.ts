@@ -1,6 +1,6 @@
 // Runs every 15 minutes (Netlify scheduled function). Each daily/weekly task runs once
 // per day after its time, and every reminder is recorded so nobody gets the same one twice.
-import type { Api } from "grammy";
+import { type Api, InlineKeyboard } from "grammy";
 import { storeBackup } from "./backup";
 import { cfg } from "./config";
 import { type Lang, esc, t } from "./i18n";
@@ -46,7 +46,8 @@ export async function runDailyReminders(api: Api, today: string) {
   const users = await activeUsers();
   const byId = new Map<number, User>(users.map((u) => [u.id, u]));
   const admins = users.filter((u) => u.role === "admin");
-  const candidates = selectReminders(jobs, admins.map((a) => a.id), today);
+  const smm = users.filter((u) => u.role === "smm");
+  const candidates = selectReminders(jobs, admins.map((a) => a.id), today, smm.map((u) => u.id));
 
   for (const c of candidates) {
     const user = byId.get(c.userId);
@@ -69,10 +70,14 @@ export async function runDailyReminders(api: Api, today: string) {
       text = t(lang, "rem_mat_tailor", { ...base, seller: esc(job.seller_name) });
     } else if (c.kind === "not_ready") {
       text = t(lang, "rem_not_ready", base);
+    } else if (c.kind === "not_ready_team") {
+      text = t(lang, "rem_not_ready_team", { ...base, tailor: esc(job.tailor_name) });
     } else {
       text = t(lang, "rem_failing", { ...base, list: missingList(lang, failing(job.checks)) });
     }
-    const ok = await sendTo(api, user, { text, kb: openKb(lang, job.id) });
+    // The late tailor can suggest a new date straight from the reminder
+    const kb = c.kind === "not_ready" ? openKb(lang, job.id, new InlineKeyboard().text(t(lang, "btn_offer_date"), `do:${job.id}`)) : openKb(lang, job.id);
+    const ok = await sendTo(api, user, { text, kb });
     // Not delivered for a temporary reason: free the slot so the next run tries again
     if (!ok && user.is_reachable) await releaseNotification(c.kind, c.jobId, c.userId, today);
     await sleep(40);

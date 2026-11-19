@@ -28,7 +28,7 @@ await db().begin(async (tx) => {
     }
     console.log(`${table}: ${rows.length} rows`);
   }
-  for (const table of ["users", "jobs", "job_events", "job_media", "notifications_sent"]) {
+  for (const table of ["users", "jobs", "job_events", "job_media", "date_offers", "notifications_sent"]) {
     await tx.unsafe(
       `SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 0) + 1, false)`,
     );

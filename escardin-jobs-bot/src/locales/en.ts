@@ -10,6 +10,7 @@ const en: Record<Key, string> = {
   role_seller: "Seller",
   role_tailor: "Tailor",
   role_admin: "Admin",
+  role_smm: "SMM",
   menu_title: "<b>Escardin · Jobs</b>\n{name} ({role})",
   btn_new_job: "➕ New job",
   btn_jobs: "📋 Jobs",
@@ -30,7 +31,8 @@ const en: Record<Key, string> = {
     "• <b>New job</b> — a seller opens a job: name, install date, tailor, price.\n" +
     "• <b>Jobs</b> — all jobs, with filters and search.\n" +
     "• Every job has 6 checks. When all are ✅ the job can be closed.\n" +
-    "• The tailor sets 1–4, the seller sets 5–6.\n" +
+    "• The tailor sets 1–2 (the seller can set 1 too), SMM sets 3–5, an admin sets 6.\n" +
+    "• If the tailor is late, they suggest a new date and an admin approves it.\n" +
     "• Reminders arrive every day at {daily}.\n\n" +
     "Choose a language:",
   lang_set: "Language changed.",
@@ -222,6 +224,26 @@ const en: Record<Key, string> = {
   rem_mat_tailor: "ℹ️ <b>{name}</b>: seller {seller} was reminded about the materials.",
   rem_not_ready: "⏰ <b>{name}</b>: install {date} ({due}), the curtain is not ready yet.",
   rem_failing: "🚨 <b>{name}</b>: install {date} ({due}), failing checks: {list}",
+
+  btn_offer_date: "📅 Suggest a new date",
+  btn_approve: "✅ Approve",
+  btn_reject: "❌ Reject",
+  ask_offer_date: "<b>{name}</b>\nCurrent install date: {date}.\nWhen will it be ready? Pick or type a date (25.11).",
+  ask_offer_reason: "Write the reason in a few words (for example: fabric came late):",
+  offer_sent: "Your suggestion was sent to the admins.",
+  offer_line: "📅 New date suggested: {new} ({who}) — waiting for an admin\nReason: {reason}",
+  already_decided: "This suggestion was already answered.",
+  offer_date_past: "The date can't be before today.",
+  g_date_offer: "<b>{name}</b>\n📅 {who} suggested a new date: {old} → {new}\nReason: {reason}",
+  n_date_offer: "📅 <b>{name}</b>: tailor {who} asks to move the install date: {old} → {new}\nReason: {reason}",
+  g_date_approved: "<b>{name}</b>\n✅ New date approved: {old} → {new} — {who}",
+  n_date_approved: "📅 <b>{name}</b>: install date changed {old} → {new} (approved by {by})",
+  g_date_rejected: "<b>{name}</b>\n❌ New date ({new}) rejected — {who}",
+  n_date_rejected: "❌ <b>{name}</b>: the new date ({new}) was rejected ({by}). The date stays {old}.",
+  rem_not_ready_team: "⚠️ <b>{name}</b>: install {date} ({due}), but tailor {tailor} hasn't finished sewing yet.",
+  ev_date_offered: "new date suggested: {old} → {new}",
+  ev_date_approved: "new date approved: {old} → {new}",
+  ev_date_rejected: "new date rejected: {new}",
 
   cmd_start: "Start",
   cmd_menu: "Main menu",

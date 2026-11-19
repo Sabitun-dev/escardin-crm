@@ -6,6 +6,7 @@ export const seller: Actor = { id: 2, role: "seller" };
 export const otherSeller: Actor = { id: 3, role: "seller" };
 export const tailor: Actor = { id: 4, role: "tailor" };
 export const otherTailor: Actor = { id: 5, role: "tailor" };
+export const smm: Actor = { id: 6, role: "smm" };
 
 export const job = (over: Partial<JobRef> = {}): JobRef => ({
   id: 10,

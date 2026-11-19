@@ -15,6 +15,7 @@ import {
   canCreateJob,
   canEditJob,
   canManage,
+  canProposeDate,
   canSetCheck,
   isAdmin,
 } from "./rules/permissions";
@@ -97,8 +98,8 @@ async function showMenu(ctx: Ctx) {
 async function showCard(ctx: Ctx, jobId: number) {
   const job = await repo.getJob(jobId);
   if (!job) return toast(ctx, tr(ctx, "not_found"), true);
-  const [checks, photos] = await Promise.all([repo.getChecks(jobId), repo.countPhotos(jobId)]);
-  await show(ctx, v.cardView(ctx.lang, ctx.u, job, checks, today(), photos));
+  const [checks, photos, offer] = await Promise.all([repo.getChecks(jobId), repo.countPhotos(jobId), repo.pendingOffer(jobId)]);
+  await show(ctx, v.cardView(ctx.lang, ctx.u, job, checks, today(), photos, offer));
 }
 
 async function showList(ctx: Ctx, filter: ListFilter, page: number, search?: string) {
@@ -114,7 +115,7 @@ function failText(ctx: Ctx, f: act.Fail): string {
   if (f.error === "incomplete" || f.error === "reason_required") {
     return tr(ctx, "close_missing", { list: v.missingList(ctx.lang, f.missing ?? []) });
   }
-  const same = ["not_found", "forbidden", "job_not_open", "photo_required", "no_issue", "self_forbidden"] as const;
+  const same = ["not_found", "forbidden", "job_not_open", "photo_required", "no_issue", "self_forbidden", "already_decided"] as const;
   return tr(ctx, (same as readonly string[]).includes(f.error) ? (f.error as (typeof same)[number]) : "expired");
 }
 
@@ -301,6 +302,15 @@ export function getBot(): Bot<MyContext> {
       case "ph":
         return sendPhotos(ctx, num(a));
 
+      // new install date: tailor suggests, admin decides
+      case "do":
+        return offerAsk(ctx, num(a));
+      case "dod":
+        return offerDate(ctx, num(a), addDays(today(), num(b) || 1));
+      case "oa":
+      case "or":
+        return offerDecide(ctx, num(a), cmd === "oa");
+
       // closing and cancelling
       case "cl":
         return closeAsk(ctx, num(a));
@@ -346,6 +356,8 @@ export function getBot(): Bot<MyContext> {
           kb: new InlineKeyboard()
             .text(v.roleName(ctx.lang, "seller"), "uir:s")
             .text(v.roleName(ctx.lang, "tailor"), "uir:t")
+            .row()
+            .text(v.roleName(ctx.lang, "smm"), "uir:m")
             .text(v.roleName(ctx.lang, "admin"), "uir:a")
             .row()
             .text(tr(ctx, "btn_back"), "u"),
@@ -461,6 +473,19 @@ export function getBot(): Bot<MyContext> {
         await repo.clearState(ctx.u.id);
         await tidy(ctx, d);
         return editApply(ctx, d.job, "price", p);
+      }
+      case "offer_date": {
+        const date = parseUserDate(text, today());
+        if (!date) return ctx.reply(tr(ctx, "date_invalid"));
+        await tidy(ctx, d);
+        return offerDate(ctx, d.job, date);
+      }
+      case "offer_reason": {
+        if (text.length < 3) return ctx.reply(tr(ctx, "reason_invalid"));
+        const data = await repo.takeState(ctx.u.id, "offer_reason");
+        if (!data) return;
+        await tidy(ctx, data);
+        return offerSend(ctx, data.job, data.date, text.slice(0, 300));
       }
       case "inv_name": {
         const n = name1(text);
@@ -645,6 +670,46 @@ async function sendPhotos(ctx: Ctx, jobId: number) {
   await ctx.replyWithMediaGroup(
     photos.map((p) => ({ type: "photo" as const, media: p.telegram_file_id, caption: (p.caption ?? "").slice(0, 1000) })),
   );
+}
+
+// ---------------- new install date ----------------
+
+async function offerAsk(ctx: Ctx, jobId: number) {
+  const job = await loadJob(ctx, jobId);
+  if (!job) return;
+  if (!canProposeDate(ctx.u, job)) return toast(ctx, tr(ctx, job.status !== "open" ? "job_not_open" : "forbidden"), true);
+  const kb = new InlineKeyboard()
+    .text(tr(ctx, "btn_tomorrow"), `dod:${jobId}:1`)
+    .text(tr(ctx, "btn_in2"), `dod:${jobId}:2`)
+    .text(tr(ctx, "btn_in3"), `dod:${jobId}:3`)
+    .row();
+  return prompt(ctx, "offer_date", { job: jobId }, tr(ctx, "ask_offer_date", { name: esc(job.name), date: fmtDate(job.install_date) }), kb);
+}
+
+async function offerDate(ctx: Ctx, jobId: number, date: string) {
+  const s = await repo.getState(ctx.u.id);
+  if (s?.state !== "offer_date" || s.data.job !== jobId) return toast(ctx, tr(ctx, "expired"), true);
+  if (diffDays(today(), date) < 0) return ctx.reply(tr(ctx, "offer_date_past"));
+  return prompt(ctx, "offer_reason", { job: jobId, date }, tr(ctx, "ask_offer_reason"));
+}
+
+async function offerSend(ctx: Ctx, jobId: number, date: string, reason: string) {
+  const r = await act.proposeDate(ctx.api, ctx.u, jobId, date, reason);
+  if (!r.ok) {
+    await toast(ctx, failText(ctx, r), true);
+    return showCard(ctx, jobId);
+  }
+  await ctx.reply(tr(ctx, "offer_sent"));
+  await showCard(ctx, jobId);
+  await r.followUp();
+}
+
+async function offerDecide(ctx: Ctx, offerId: number, approve: boolean) {
+  const r = await act.decideDate(ctx.api, ctx.u, offerId, approve);
+  if (!r.ok) return toast(ctx, failText(ctx, r), true);
+  await toast(ctx, tr(ctx, "saved"));
+  await showCard(ctx, r.jobId);
+  await r.followUp();
 }
 
 // ---------------- close / cancel ----------------

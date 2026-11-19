@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type CheckKey, failing, isComplete, parseMoney, passes, progress } from "../src/rules/checks";
 import { planCheckSet, planClaimDelivered } from "../src/rules/permissions";
-import { admin, allPass, checks, job, seller, tailor } from "./helpers";
+import { admin, allPass, checks, job, seller, smm, tailor } from "./helpers";
 
 const row = (key: CheckKey, value: string | null = null) => checks({ [key]: value }).find((r) => r.key === key)!;
 
@@ -50,19 +50,19 @@ describe("setting a check", () => {
     expect(planCheckSet(admin, job({ status: "done" }), row("ready"), "ready")).toMatchObject({ ok: false, error: "not_open" });
   });
 
-  it("problem needs a note and a photo, and tells seller and admins", () => {
-    expect(planCheckSet(tailor, job(), row("quality"), "problem")).toMatchObject({ ok: false, error: "note_required" });
-    expect(planCheckSet(tailor, job(), row("quality"), "problem", { note: "Torn" })).toMatchObject({ ok: false, error: "photo_required" });
-    const p = planCheckSet(tailor, job(), row("quality"), "problem", { note: "Torn", photoFileId: "F1" });
-    expect(p).toMatchObject({ ok: true, changed: true, notify: ["seller", "admins"], next: { note: "Torn" } });
+  it("problem (found by SMM) needs a note and a photo, and tells the tailor, seller and admins", () => {
+    expect(planCheckSet(smm, job(), row("quality"), "problem")).toMatchObject({ ok: false, error: "note_required" });
+    expect(planCheckSet(smm, job(), row("quality"), "problem", { note: "Torn" })).toMatchObject({ ok: false, error: "photo_required" });
+    const p = planCheckSet(smm, job(), row("quality"), "problem", { note: "Torn", photoFileId: "F1" });
+    expect(p).toMatchObject({ ok: true, changed: true, notify: ["tailor", "seller", "admins"], next: { note: "Torn" } });
   });
 
   it("payment amounts: paid = price, unpaid = 0, partly needs a valid amount", () => {
-    expect(planCheckSet(seller, job(), row("payment"), "paid")).toMatchObject({ ok: true, next: { amount: 5_000_000 } });
-    expect(planCheckSet(seller, job(), row("payment"), "unpaid")).toMatchObject({ ok: true, next: { amount: 0 } });
-    expect(planCheckSet(seller, job(), row("payment"), "partly")).toMatchObject({ ok: false, error: "amount_required" });
-    expect(planCheckSet(seller, job(), row("payment"), "partly", { amount: 5_000_000 })).toMatchObject({ ok: false });
-    expect(planCheckSet(seller, job(), row("payment"), "partly", { amount: 2_000_000 })).toMatchObject({
+    expect(planCheckSet(admin, job(), row("payment"), "paid")).toMatchObject({ ok: true, next: { amount: 5_000_000 } });
+    expect(planCheckSet(admin, job(), row("payment"), "unpaid")).toMatchObject({ ok: true, next: { amount: 0 } });
+    expect(planCheckSet(admin, job(), row("payment"), "partly")).toMatchObject({ ok: false, error: "amount_required" });
+    expect(planCheckSet(admin, job(), row("payment"), "partly", { amount: 5_000_000 })).toMatchObject({ ok: false });
+    expect(planCheckSet(admin, job(), row("payment"), "partly", { amount: 2_000_000 })).toMatchObject({
       ok: true,
       next: { amount: 2_000_000 },
     });
@@ -80,8 +80,10 @@ describe("materials flow", () => {
     });
   });
 
-  it("seller cannot set All received; tailor and admin can", () => {
-    expect(planCheckSet(seller, job(), row("materials", "incomplete"), "all_received")).toMatchObject({ ok: false, error: "forbidden" });
+  it("own seller, tailor and admin can set materials; another tailor cannot", () => {
+    expect(planCheckSet(seller, job(), row("materials", "incomplete"), "all_received")).toMatchObject({ ok: true });
+    expect(planCheckSet(seller, job({ seller_id: 99 }), row("materials", "incomplete"), "all_received")).toMatchObject({ ok: false, error: "forbidden" });
+    expect(planCheckSet(smm, job(), row("materials"), "all_received")).toMatchObject({ ok: false, error: "forbidden" });
     expect(planCheckSet(tailor, job(), row("materials", "incomplete"), "all_received")).toMatchObject({ ok: true });
     expect(planCheckSet(admin, job(), row("materials", "incomplete"), "all_received")).toMatchObject({ ok: true });
   });
